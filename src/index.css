@@ -1,0 +1,76 @@
+@import 'tailwindcss';
+
+/* Palette carried over from band-website so this feels like the same family:
+   dark blue ground, gold accent, red accent, cream text. */
+@theme {
+  --color-ground: #0c1420;
+  --color-panel: #14202f;
+  --color-panel-2: #1c2b3d;
+  --color-edge: #2a3a4f;
+  --color-cream: #f2ece0;
+  --color-muted: #8ea0b6;
+  --color-gold: #dfab29;
+  --color-rust: #d54514;
+
+  --font-header: 'Bebas Neue', Impact, sans-serif;
+  --font-body: 'PT Sans', system-ui, sans-serif;
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  background-color: var(--color-ground);
+  color: var(--color-cream);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--font-header);
+  letter-spacing: 0.02em;
+}
+
+/* Range inputs styled to read as studio faders in both directions. */
+input[type='range'] {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+}
+input[type='range']::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--color-edge);
+}
+input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  margin-top: -6px;
+  height: 18px;
+  width: 18px;
+  border-radius: 999px;
+  background: var(--color-gold);
+  border: 2px solid var(--color-ground);
+}
+input[type='range']::-moz-range-track {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--color-edge);
+}
+input[type='range']::-moz-range-thumb {
+  height: 18px;
+  width: 18px;
+  border: 2px solid var(--color-ground);
+  border-radius: 999px;
+  background: var(--color-gold);
+}
+
+/* Keep focus rings visible for keyboard use — this whole app is shortcut-driven. */
+:focus-visible {
+  outline: 2px solid var(--color-gold);
+  outline-offset: 2px;
+}
