@@ -32,6 +32,12 @@ plain Vite — `npm run dev` alone serves the UI but every playlist fetch fails:
 npx netlify dev
 ```
 
+That serves the app on **http://localhost:8888** — not 5174. Vite still runs on
+5174 underneath, but only the 8888 address has the playlist function attached.
+`netlify.toml` pins that wiring in a `[dev]` block; without it Netlify's
+framework detection assumes Vite's default port 5173 and waits forever on a port
+nothing is listening to.
+
 For deployment, set `YOUTUBE_API_KEY` in the Netlify site's environment
 variables. `netlify.toml` already wires up the build, the function directory,
 and the SPA fallback.

@@ -3,6 +3,17 @@
   publish = "dist"
   functions = "netlify/functions"
 
+# Pinned rather than auto-detected: Netlify's Vite detection assumes the
+# default port 5173, but vite.config.js uses 5174, so detection waits on a
+# port nothing is listening to. "#custom" turns detection off entirely.
+[dev]
+  command = "npm run dev"
+  framework = "#custom"
+  targetPort = 5174
+  port = 8888
+  publish = "dist"
+  autoLaunch = false
+
 # SPA fallback — every route serves index.html, except the functions.
 [[redirects]]
   from = "/api/*"
