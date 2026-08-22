@@ -25,7 +25,7 @@ const btn =
   'disabled:cursor-not-allowed'
 const btnOn = 'bg-gold text-ground ring-gold hover:bg-gold/90'
 
-export default function SongCard({ showId, song, index }) {
+export default function SongCard({ showId, song, index, done, onToggleDone }) {
   const [settings, setSettings] = useState(() => getSongSettings(showId, song.videoId))
   const [mode, setMode] = useState('youtube') // 'youtube' | 'audio'
   const [open, setOpen] = useState(true)
@@ -170,7 +170,7 @@ export default function SongCard({ showId, song, index }) {
       onDragOver={(e) => e.preventDefault()}
       onDrop={onDrop}
       className={`rounded-lg bg-panel ring-1 transition-shadow ${
-        settings.done ? 'ring-edge/50 opacity-70' : 'ring-edge'
+        done ? 'ring-edge/50 opacity-70' : 'ring-edge'
       } focus-within:ring-gold/60`}
     >
       {/* ------------------------------------------------------- header -- */}
@@ -178,13 +178,15 @@ export default function SongCard({ showId, song, index }) {
         <span className="font-mono text-xs text-muted">{String(index + 1).padStart(2, '0')}</span>
 
         <button
-          onClick={() => update({ done: !settings.done })}
-          title={settings.done ? 'Mark as still learning' : 'Mark as learned'}
+          onClick={onToggleDone}
+          aria-pressed={done}
+          aria-label={done ? `Mark "${song.title}" as still learning` : `Mark "${song.title}" as learned`}
+          title={done ? 'Learned — click to mark as still learning' : 'Mark as learned'}
           className={`flex h-5 w-5 shrink-0 items-center justify-center rounded ring-1 ring-edge ${
-            settings.done ? 'bg-gold text-ground' : 'bg-panel-2'
+            done ? 'bg-gold text-ground' : 'bg-panel-2'
           }`}
         >
-          {settings.done && <Check size={13} strokeWidth={3} />}
+          {done && <Check size={13} strokeWidth={3} />}
         </button>
 
         <h3 className="min-w-0 flex-1 truncate text-lg" title={song.title}>
