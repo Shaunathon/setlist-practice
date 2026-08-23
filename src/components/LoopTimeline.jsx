@@ -4,22 +4,18 @@ import { loopLabels, timecode } from '../lib/format'
 /**
  * Scrub bar showing every loop section at once.
  *
- * Clicking inside a section jumps to that section's start — not the pixel you
- * clicked — and makes it the active loop, which is the quick way to move
- * between sections. Clicking anywhere else is an ordinary seek. The A/B flags
- * stay draggable so you can reshape a section while it plays.
+ * Clicking inside a section arms it and restarts it from its start point — not
+ * from the pixel you clicked — which is the quick way to move between sections.
+ * Clicking anywhere else releases the armed section and seeks to exactly where
+ * you clicked.
+ *
+ * The section markers are deliberately NOT draggable. Practice loops are short,
+ * so drag targets sat on top of most of the region and swallowed the clicks that
+ * were meant to select it. Points are moved with the Set buttons instead.
  */
-export default function LoopTimeline({
-  duration,
-  time,
-  loops,
-  activeLoopId,
-  onSeek,
-  onJumpToLoop,
-  onChangeLoop,
-}) {
+export default function LoopTimeline({ duration, time, loops, activeLoopId, onSeek, onJumpToLoop }) {
   const trackRef = useRef(null)
-  const dragRef = useRef(null) // { loopId, edge: 'a' | 'b' } | 'seek'
+  const draggingRef = useRef(false)
 
   const positionFromEvent = useCallback(
     (clientX) => {
@@ -34,7 +30,7 @@ export default function LoopTimeline({
 
   const complete = (l) => l.a != null && l.b != null && l.b > l.a
 
-  const handleTrackPointerDown = (e) => {
+  const handlePointerDown = (e) => {
     if (!duration) return
     const pos = positionFromEvent(e.clientX)
 
@@ -45,41 +41,18 @@ export default function LoopTimeline({
       return
     }
 
-    dragRef.current = 'seek'
+    draggingRef.current = true
     trackRef.current.setPointerCapture?.(e.pointerId)
     onSeek(pos)
   }
 
   const handlePointerMove = (e) => {
-    const drag = dragRef.current
-    if (!drag || !duration) return
-    const pos = positionFromEvent(e.clientX)
-
-    if (drag === 'seek') {
-      onSeek(pos)
-      return
-    }
-
-    const loop = loops.find((l) => l.id === drag.loopId)
-    if (!loop) return
-
-    // Never let the two edges cross.
-    if (drag.edge === 'a') {
-      onChangeLoop(loop.id, { a: loop.b != null ? Math.min(pos, loop.b - 0.1) : pos })
-    } else {
-      onChangeLoop(loop.id, { b: loop.a != null ? Math.max(pos, loop.a + 0.1) : pos })
-    }
-  }
-
-  const startEdgeDrag = (loopId, edge) => (e) => {
-    e.preventDefault()
-    e.stopPropagation()
-    dragRef.current = { loopId, edge }
-    e.currentTarget.setPointerCapture?.(e.pointerId)
+    if (!draggingRef.current || !duration) return
+    onSeek(positionFromEvent(e.clientX))
   }
 
   const endDrag = () => {
-    dragRef.current = null
+    draggingRef.current = false
   }
 
   const pct = (v) => (duration ? `${Math.min(Math.max((v / duration) * 100, 0), 100)}%` : '0%')
@@ -89,7 +62,7 @@ export default function LoopTimeline({
     <div className="select-none">
       <div
         ref={trackRef}
-        onPointerDown={handleTrackPointerDown}
+        onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={endDrag}
         onPointerCancel={endDrag}
@@ -99,11 +72,12 @@ export default function LoopTimeline({
           if (loop.a == null && loop.b == null) return null
           const [labelA, labelB] = loopLabels(i)
           const isActive = loop.id === activeLoopId
-          const spans = complete(loop)
 
           return (
-            <div key={loop.id}>
-              {spans && (
+            // pointer-events-none throughout: every click belongs to the track,
+            // so even a one-second section stays selectable.
+            <div key={loop.id} className="pointer-events-none">
+              {complete(loop) && (
                 <div
                   className={`absolute inset-y-0 ${isActive ? 'bg-gold/30' : 'bg-muted/12'}`}
                   style={{ left: pct(loop.a), width: pct(loop.b - loop.a) }}
@@ -111,41 +85,25 @@ export default function LoopTimeline({
               )}
 
               {loop.a != null && (
-                <button
-                  onPointerDown={startEdgeDrag(loop.id, 'a')}
-                  onPointerMove={handlePointerMove}
-                  onPointerUp={endDrag}
-                  aria-label={`Loop ${labelA} start at ${timecode(loop.a, true)} — drag to move`}
-                  className="absolute top-0 z-10 -ml-2 flex h-full w-4 cursor-ew-resize items-start justify-center"
+                <span
+                  className={`absolute top-0 -ml-1.5 rounded-br rounded-tl px-1 text-[10px] font-bold leading-4 ${
+                    isActive ? 'bg-gold text-ground' : 'bg-edge text-cream'
+                  }`}
                   style={{ left: pct(loop.a) }}
                 >
-                  <span
-                    className={`rounded-br rounded-tl px-1 text-[10px] font-bold leading-4 ${
-                      isActive ? 'bg-gold text-ground' : 'bg-edge text-cream'
-                    }`}
-                  >
-                    {labelA}
-                  </span>
-                </button>
+                  {labelA}
+                </span>
               )}
 
               {loop.b != null && (
-                <button
-                  onPointerDown={startEdgeDrag(loop.id, 'b')}
-                  onPointerMove={handlePointerMove}
-                  onPointerUp={endDrag}
-                  aria-label={`Loop ${labelB} end at ${timecode(loop.b, true)} — drag to move`}
-                  className="absolute top-0 z-10 -ml-2 flex h-full w-4 cursor-ew-resize items-end justify-center"
+                <span
+                  className={`absolute bottom-0 -ml-1.5 rounded-bl rounded-tr px-1 text-[10px] font-bold leading-4 ${
+                    isActive ? 'bg-rust text-cream' : 'bg-edge text-cream'
+                  }`}
                   style={{ left: pct(loop.b) }}
                 >
-                  <span
-                    className={`rounded-bl rounded-tr px-1 text-[10px] font-bold leading-4 ${
-                      isActive ? 'bg-rust text-cream' : 'bg-edge text-cream'
-                    }`}
-                  >
-                    {labelB}
-                  </span>
-                </button>
+                  {labelB}
+                </span>
               )}
             </div>
           )

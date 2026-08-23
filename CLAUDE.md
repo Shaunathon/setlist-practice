@@ -69,6 +69,15 @@ active section repeats — arming one disarms the others.
 **Labels come from position, never storage**: row 0 is A/B, row 1 is C/D. Delete
 a row and everything below re-letters itself, so never persist a label.
 
+Selecting a section always drops the playhead at its start, whether via the
+row's Loop button or by clicking the section on the scrub bar. Seeking anywhere
+that isn't a section releases the armed one and plays on from exactly there.
+
+**The scrub bar's section markers must stay `pointer-events: none`.** They were
+draggable once; practice loops are only a percent or two of the bar, so the drag
+targets covered the region and swallowed the clicks meant to select it. Points
+are moved with the Set buttons.
+
 Both engines only understand a single loop, so `SongCard.activeLoopFor()`
 flattens the armed section into the `{ loopA, loopB, loopOn }` shape `loopRef`
 carries. Settings saved before this existed used `loopA`/`loopB`/`loopOn`

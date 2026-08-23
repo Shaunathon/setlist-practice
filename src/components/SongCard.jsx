@@ -159,10 +159,46 @@ export default function SongCard({
     [nowAt, showId, song.videoId]
   )
 
+  /**
+   * Arm a section and drop the playhead at its start. Selecting a section is
+   * always a request to hear it from the top, whether you got there from the
+   * row's Loop button or by clicking the section on the scrub bar.
+   */
+  const armLoop = useCallback(
+    (loopId) => {
+      const loop = settings.loops.find((l) => l.id === loopId)
+      if (!loop) return
+      update({ activeLoopId: loopId })
+      if (loop.a != null) engineRef.current?.seek(loop.a)
+    },
+    [update, settings.loops]
+  )
+
   /** Only one section repeats at a time — arming one disarms the rest. */
   const toggleLoop = useCallback(
-    (loopId) => update({ activeLoopId: settings.activeLoopId === loopId ? null : loopId }),
-    [update, settings.activeLoopId]
+    (loopId) => {
+      if (settings.activeLoopId === loopId) update({ activeLoopId: null })
+      else armLoop(loopId)
+    },
+    [settings.activeLoopId, update, armLoop]
+  )
+
+  /**
+   * Seeking anywhere that isn't a section releases the armed one, so the song
+   * plays on from exactly where you clicked instead of being yanked back.
+   */
+  const seekOutside = useCallback(
+    (seconds) => {
+      setSettings((prev) => {
+        if (!prev.activeLoopId) return prev // already free — no write, no re-render
+        const next = { ...prev, activeLoopId: null }
+        loopRef.current = activeLoopFor(next)
+        saveSongSettings(showId, song.videoId, { activeLoopId: null })
+        return next
+      })
+      engineRef.current?.seek(seconds)
+    },
+    [showId, song.videoId]
   )
 
   const addLoop = useCallback(() => {
@@ -181,22 +217,6 @@ export default function SongCard({
     [update, settings.loops, settings.activeLoopId]
   )
 
-  const changeLoop = useCallback(
-    (loopId, patch) =>
-      update({ loops: settings.loops.map((l) => (l.id === loopId ? { ...l, ...patch } : l)) }),
-    [update, settings.loops]
-  )
-
-  /** Clicking inside a section restarts it from the top and arms it. */
-  const jumpToLoop = useCallback(
-    (loopId) => {
-      const loop = settings.loops.find((l) => l.id === loopId)
-      if (!loop || loop.a == null) return
-      update({ activeLoopId: loopId })
-      engineRef.current?.seek(loop.a)
-    },
-    [update, settings.loops]
-  )
 
   const handleFile = useCallback(
     async (file) => {
@@ -378,9 +398,8 @@ export default function SongCard({
               time={time}
               loops={settings.loops}
               activeLoopId={settings.activeLoopId}
-              onSeek={engine.seek}
-              onJumpToLoop={jumpToLoop}
-              onChangeLoop={changeLoop}
+              onSeek={seekOutside}
+              onJumpToLoop={armLoop}
             />
 
             {/* Player controls */}
