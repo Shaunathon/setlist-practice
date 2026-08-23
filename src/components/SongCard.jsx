@@ -18,6 +18,7 @@ import {
 } from 'lucide-react'
 import { useYouTubePlayer } from '../hooks/useYouTubePlayer'
 import { useAudioEngine } from '../hooks/useAudioEngine'
+import { useTransposeBridge } from '../hooks/useTransposeBridge'
 import { getSongSettings, newLoopId, saveSongSettings } from '../lib/storage'
 import { loopLabels, MAX_LOOPS, percentLabel, semitoneLabel } from '../lib/format'
 import LoopTimeline from './LoopTimeline'
@@ -75,6 +76,14 @@ export default function SongCard({
 
   const yt = useYouTubePlayer({ videoId: song.videoId, loopRef })
   const audio = useAudioEngine({ loopRef })
+
+  // The companion extension, if it's installed, can transpose the YouTube
+  // player from inside its own frame.
+  const extensionTranspose = useTransposeBridge({
+    hostRef: yt.hostRef,
+    semitones: settings.pitch,
+    enabled: mode === 'youtube',
+  })
 
   const engine = mode === 'audio' && audio.ready ? audio : yt
   // Mirror of the live engine, so click handlers can reach it without taking a
@@ -388,9 +397,11 @@ export default function SongCard({
           {song.title}
         </h3>
 
-        {settings.rate !== 1 && mode === 'youtube' && (
+        {mode === 'youtube' && (settings.rate !== 1 || (extensionTranspose && settings.pitch !== 0)) && (
           <span className="rounded bg-gold/20 px-1.5 py-0.5 font-mono text-xs text-gold">
-            {percentLabel(settings.rate)}
+            {settings.rate !== 1 && percentLabel(settings.rate)}
+            {settings.rate !== 1 && extensionTranspose && settings.pitch !== 0 && ' · '}
+            {extensionTranspose && settings.pitch !== 0 && `${semitoneLabel(settings.pitch)} st`}
           </span>
         )}
         {mode === 'audio' && (
@@ -677,11 +688,13 @@ export default function SongCard({
               <div className="mb-1 flex items-baseline justify-between">
                 <label className="text-xs uppercase tracking-wide text-muted">Transpose</label>
                 <span className="font-mono text-sm text-gold">
-                  {mode === 'audio' ? `${semitoneLabel(settings.pitch)} st` : '—'}
+                  {mode === 'audio' || extensionTranspose
+                    ? `${semitoneLabel(settings.pitch)} st`
+                    : '—'}
                 </span>
               </div>
 
-              {mode === 'audio' ? (
+              {mode === 'audio' || extensionTranspose ? (
                 <>
                   <input
                     type="range"
@@ -706,9 +719,10 @@ export default function SongCard({
                 </>
               ) : (
                 <p className="rounded bg-panel-2 px-2 py-1.5 text-xs leading-relaxed text-muted">
-                  YouTube's player exposes no pitch control, and its audio is
-                  locked inside a cross-origin frame. Attach an audio file to
-                  transpose this one.
+                  A web page can't reach the audio inside a cross-origin YouTube
+                  frame. Install the companion extension from{' '}
+                  <code className="rounded bg-ground px-1 py-0.5">extension/</code> to
+                  transpose the video, or attach an audio file.
                 </p>
               )}
             </div>

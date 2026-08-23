@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "Setlist Practice — Transpose",
+  "version": "0.1.0",
+  "description": "Adds real pitch shifting to the YouTube players inside Setlist Practice. Idle unless that app asks it to do something.",
+  "content_scripts": [
+    {
+      "matches": ["*://www.youtube.com/embed/*"],
+      "all_frames": true,
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
