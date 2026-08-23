@@ -89,7 +89,14 @@ last-row fallback the Set keys use, so the keyboard can't edit a section whose
 own buttons are greyed out.
 
 `setPoint` clears a partner point that the new one invalidates, in both
-directions, so a section can never end up backwards or zero-length.
+directions, so a section can never end up backwards or zero-length — except
+when the two land within one nudge step of each other, which is a no-op: there's
+no useful section to record, so the existing point survives instead of being
+wiped.
+
+Pressing `A` on a song with no sections creates the row *and* marks the point
+(`startSectionAt`). The bare `addLoop` behind the `+` button makes an empty row;
+never route a Set key through it, or the keypress silently records nothing.
 
 The transport row is asymmetric on purpose: the left button is skip-to-start
 (the armed section's start, or the track's if nothing is armed) rather than a

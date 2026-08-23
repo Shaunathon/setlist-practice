@@ -149,9 +149,14 @@ export default function SongCard({
       setSettings((prev) => {
         const loops = prev.loops.map((l) => {
           if (l.id !== loopId) return l
-          // Whichever point you place most recently wins; a partner that the
-          // new point has invalidated is cleared rather than left to form a
-          // backwards or zero-length section.
+          // Marking a point on top of its partner would make a section shorter
+          // than a single nudge. There's nothing useful to record, so keep the
+          // point that's already there rather than wiping it.
+          const partner = edge === 'a' ? l.b : l.a
+          if (partner != null && Math.abs(partner - t) < NUDGE_SECONDS) return l
+
+          // Otherwise the most recent point wins, and a partner it has
+          // invalidated is cleared rather than left backwards.
           if (edge === 'a') {
             return { ...l, a: t, b: l.b != null && l.b > t ? l.b : null }
           }
@@ -254,6 +259,21 @@ export default function SongCard({
     [showId, song.videoId]
   )
 
+  /**
+   * Start a section and mark the point in one go. Pressing A on a song with no
+   * sections has to record where you are, not just make an empty row — the row
+   * is a means to the point, never the goal.
+   */
+  const startSectionAt = useCallback(
+    (edge) => {
+      if (settings.loops.length >= MAX_LOOPS) return
+      const t = nowAt()
+      const loop = { id: newLoopId(), a: edge === 'a' ? t : null, b: edge === 'b' ? t : null }
+      update({ loops: [...settings.loops, loop] })
+    },
+    [nowAt, update, settings.loops]
+  )
+
   const addLoop = useCallback(() => {
     if (settings.loops.length >= MAX_LOOPS) return
     // Not armed on creation — it has no points yet, so there'd be nothing to
@@ -319,7 +339,7 @@ export default function SongCard({
       // you can mark both ends without looking down.
       const handlers = {
         ' ': () => engine.toggle(),
-        a: () => (targetId ? setPoint(targetId, 'a') : addLoop()),
+        a: () => (targetId ? setPoint(targetId, 'a') : startSectionAt('a')),
         d: () => targetId && setPoint(targetId, 'b'),
         l: () => targetId && toggleLoop(targetId),
       }
