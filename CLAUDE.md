@@ -83,8 +83,18 @@ section now catches the pickup; nudging an **end** point does not, since you'd
 hear that on the loop's next pass and jumping mid-phrase is disorienting. The
 asymmetry is intentional — don't "fix" it.
 
+Trimming only ever applies to the armed section: the other rows' arrows are
+disabled, and the shift/alt keys follow the armed section rather than the
+last-row fallback the Set keys use, so the keyboard can't edit a section whose
+own buttons are greyed out.
+
 `setPoint` clears a partner point that the new one invalidates, in both
 directions, so a section can never end up backwards or zero-length.
+
+The transport row is asymmetric on purpose: the left button is skip-to-start
+(the armed section's start, or the track's if nothing is armed) rather than a
+5-second rewind, while the right button still nudges forward 5s. Back-by-5s
+lives on the left arrow key.
 
 **The scrub bar's section markers must stay `pointer-events: none`.** They were
 draggable once; practice loops are only a percent or two of the bar, so the drag

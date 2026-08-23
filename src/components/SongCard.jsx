@@ -10,7 +10,7 @@ import {
   Play,
   Plus,
   Repeat,
-  Rewind,
+  SkipBack,
   FastForward,
   Trash2,
   X,
@@ -227,6 +227,16 @@ export default function SongCard({
   )
 
   /**
+   * Restart the armed section from the top, or the track if nothing is armed.
+   * Deliberately doesn't disarm — unlike a scrub-bar seek, this is a request to
+   * hear the section again, not to leave it.
+   */
+  const toSectionStart = useCallback(() => {
+    const loop = settings.loops.find((l) => l.id === settings.activeLoopId)
+    engineRef.current?.seek(loop?.a != null ? loop.a : 0)
+  }, [settings.loops, settings.activeLoopId])
+
+  /**
    * Seeking anywhere that isn't a section releases the armed one, so the song
    * plays on from exactly where you clicked instead of being yanked back.
    */
@@ -295,9 +305,13 @@ export default function SongCard({
       if (k === 'arrowleft' || k === 'arrowright') {
         e.preventDefault()
         const direction = k === 'arrowleft' ? -1 : 1
-        if (e.shiftKey && targetId) nudgePoint(targetId, 'a', direction * NUDGE_SECONDS)
-        else if (e.altKey && targetId) nudgePoint(targetId, 'b', direction * NUDGE_SECONDS)
-        else engine.nudge(direction * 5)
+        // Trimming keys follow the armed section only, matching the buttons —
+        // never the last-row fallback, or they'd edit a section whose own
+        // arrows are greyed out.
+        const armed = settings.activeLoopId
+        if (e.shiftKey && armed) nudgePoint(armed, 'a', direction * NUDGE_SECONDS)
+        else if (e.altKey && armed) nudgePoint(armed, 'b', direction * NUDGE_SECONDS)
+        else if (!e.shiftKey && !e.altKey) engine.nudge(direction * 5)
         return
       }
 
@@ -458,8 +472,21 @@ export default function SongCard({
 
             {/* Player controls */}
             <div className="flex flex-wrap items-center gap-1.5">
-              <button className={btn} onClick={() => engine.nudge(-5)} title="Back 5s (←)">
-                <Rewind size={15} />
+              <button
+                className={btn}
+                onClick={toSectionStart}
+                title={
+                  activeLoop?.a != null
+                    ? 'Back to the start of the armed section'
+                    : 'Back to the start of the track'
+                }
+                aria-label={
+                  activeLoop?.a != null
+                    ? 'Back to the start of the armed section'
+                    : 'Back to the start of the track'
+                }
+              >
+                <SkipBack size={15} />
               </button>
               <button
                 className={`${toggleBtn(playing)} min-w-20`}
@@ -493,8 +520,14 @@ export default function SongCard({
                         <button
                           className={`${segBtn} px-1.5`}
                           onClick={() => nudgePoint(loop.id, edge, -NUDGE_SECONDS)}
-                          disabled={loop[edge] == null}
-                          title={`Move ${label} back 100ms`}
+                          // Trimming only ever applies to the section you're
+                          // listening to, so the rest stay inert.
+                          disabled={loop[edge] == null || !isActive}
+                          title={
+                            !isActive
+                              ? 'Arm this section to trim it'
+                              : `Move ${label} back 100ms`
+                          }
                           aria-label={`Move section ${label} ${word} back 100 milliseconds`}
                         >
                           <ChevronLeft size={14} />
@@ -509,8 +542,12 @@ export default function SongCard({
                         <button
                           className={`${segBtn} px-1.5`}
                           onClick={() => nudgePoint(loop.id, edge, NUDGE_SECONDS)}
-                          disabled={loop[edge] == null}
-                          title={`Move ${label} forward 100ms`}
+                          disabled={loop[edge] == null || !isActive}
+                          title={
+                            !isActive
+                              ? 'Arm this section to trim it'
+                              : `Move ${label} forward 100ms`
+                          }
                           aria-label={`Move section ${label} ${word} forward 100 milliseconds`}
                         >
                           <ChevronRight size={14} />
