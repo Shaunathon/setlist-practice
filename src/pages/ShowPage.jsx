@@ -41,13 +41,27 @@ export default function ShowPage() {
     let cancelled = false
     setStatus('loading')
 
-    fetch(`/api/playlist?id=${encodeURIComponent(show.playlistId)}`)
+    // Responses sit in Netlify's edge cache for 5 minutes, so an ordinary page
+    // load is cheap. An explicit Refresh carries a throwaway parameter to make
+    // it a different URL and therefore a guaranteed miss — otherwise the button
+    // whose whole job is "pick up new songs" could hand back the same list.
+    const bust = reloadKey ? `&t=${reloadKey}` : ''
+
+    fetch(`/api/playlist?id=${encodeURIComponent(show.playlistId)}${bust}`)
       .then(async (res) => {
-        // A dev server without the function attached answers /api/* with the
-        // SPA's index.html at status 200 — treat anything non-JSON as an error
-        // rather than silently reading it as an empty playlist.
-        if (!res.headers.get('content-type')?.includes('application/json')) {
-          throw new Error('The playlist endpoint did not return JSON.')
+        // Anything non-JSON is an error, never an empty playlist: a dev server
+        // without the function answers /api/* with index.html at status 200,
+        // and an access-gated site answers with a login page at 401.
+        const type = res.headers.get('content-type') || ''
+        if (!type.includes('application/json')) {
+          throw new Error(
+            res.status === 401 || res.status === 403
+              ? `The playlist endpoint answered ${res.status} with a login page instead of data. ` +
+                `If this site has password or team-only access turned on, that gate intercepts ` +
+                `/api/ requests too, not just pages.`
+              : `The playlist endpoint answered ${res.status} with ${type || 'no content type'} ` +
+                `instead of JSON, so the function isn't reachable at /api/playlist.`
+          )
         }
         const body = await res.json().catch(() => ({}))
         if (!res.ok) throw new Error(body.error || `Request failed (${res.status})`)
@@ -137,7 +151,7 @@ export default function ShowPage() {
     // Refresh is the deliberate re-sync: everything comes back, plus anything
     // added to the playlist since.
     setRemovedIds(clearRemovedIds(show.id))
-    setReloadKey((k) => k + 1)
+    setReloadKey(Date.now()) // doubles as the cache-buster
   }, [show?.id])
 
   return (
@@ -202,11 +216,14 @@ export default function ShowPage() {
           </p>
           <p className="mt-2 text-sm text-muted">{error}</p>
           <p className="mt-3 text-sm text-muted">
-            Running locally? The playlist endpoint is a Netlify Function, so start
-            the server with <code className="rounded bg-panel-2 px-1.5 py-0.5">netlify dev</code>{' '}
-            rather than <code className="rounded bg-panel-2 px-1.5 py-0.5">npm run dev</code>,
-            and make sure <code className="rounded bg-panel-2 px-1.5 py-0.5">YOUTUBE_API_KEY</code>{' '}
-            is set in <code className="rounded bg-panel-2 px-1.5 py-0.5">.env</code>.
+            Running locally? Start the server with{' '}
+            <code className="rounded bg-panel-2 px-1.5 py-0.5">netlify dev</code> rather than{' '}
+            <code className="rounded bg-panel-2 px-1.5 py-0.5">npm run dev</code> — only the
+            former attaches the function — and set{' '}
+            <code className="rounded bg-panel-2 px-1.5 py-0.5">YOUTUBE_API_KEY</code> in{' '}
+            <code className="rounded bg-panel-2 px-1.5 py-0.5">.env</code>. On the deployed
+            site, check that the same variable is set in the Netlify site's environment
+            variables and that the site isn't behind an access gate.
           </p>
         </div>
       )}

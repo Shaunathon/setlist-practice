@@ -114,6 +114,25 @@ carries. Settings saved before this existed used `loopA`/`loopB`/`loopOn`
 directly; `migrateSongSettings` in `storage.js` folds those into the first row,
 so don't reintroduce reads of the old keys.
 
+### Backup import must merge, never replace
+
+`importAll` matches shows by id and leaves everything else alone. It is the only
+way to move work between the deployed site and localhost — separate origins mean
+separate `localStorage` — so a file exported from one must never delete shows
+that exist only on the other. It once did `write(SHOWS_KEY, data.shows)` and
+silently destroyed two shows on the live site. It returns a tally so the UI can
+report what actually happened.
+
+### Playlist caching
+
+Successful responses carry `s-maxage=300`, so Netlify's edge answers repeat
+requests for five minutes without invoking the function or calling YouTube —
+which is what keeps public traffic off the API quota. Errors are never cached.
+
+Because of that, an explicit Refresh appends `&t=<timestamp>` to force a miss.
+Without it the button whose entire purpose is "pick up newly added songs" could
+return the same list for five minutes.
+
 ### Removed videos
 
 The shared playlists carry several versions of the same tune and can't be edited,

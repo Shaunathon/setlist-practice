@@ -19,6 +19,7 @@ export default function Shows() {
   const [adding, setAdding] = useState(false)
   const [form, setForm] = useState({ name: '', date: '', venue: '', playlist: '' })
   const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
   const importRef = useRef(null)
 
   useEffect(() => {
@@ -67,9 +68,15 @@ export default function Shows() {
   const doImport = async (file) => {
     if (!file) return
     try {
-      importAll(JSON.parse(await file.text()))
+      const { added, updated, untouched, songs } = importAll(JSON.parse(await file.text()))
+      setError('')
+      setNotice(
+        `Merged: ${added} show${added === 1 ? '' : 's'} added, ${updated} updated, ` +
+          `${untouched} already here left alone. ${songs} song setting${songs === 1 ? '' : 's'} restored.`
+      )
       refresh()
     } catch (err) {
+      setNotice('')
       setError(err.message)
     }
   }
@@ -107,6 +114,17 @@ export default function Shows() {
           />
         </div>
       </header>
+
+      {notice && (
+        <p className="mb-4 rounded-md bg-panel px-3 py-2 text-sm text-gold ring-1 ring-gold/40">
+          {notice}
+        </p>
+      )}
+      {error && !adding && (
+        <p className="mb-4 rounded-md bg-panel px-3 py-2 text-sm text-rust ring-1 ring-rust/40">
+          {error}
+        </p>
+      )}
 
       <ul className="space-y-2">
         {shows.map((show) => {

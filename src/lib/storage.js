@@ -156,8 +156,38 @@ export function exportAll() {
   return data
 }
 
+/**
+ * Merge a backup into whatever is already here, matching shows by id.
+ *
+ * Deliberately NOT a replace. This is the only way to move work between the
+ * deployed site and localhost — separate origins, separate storage — so a file
+ * from one machine must never delete shows that only exist on the other.
+ *
+ * Returns a tally so the caller can say what actually happened.
+ */
 export function importAll(data) {
   if (!data || !Array.isArray(data.shows)) throw new Error('Not a valid backup file.')
-  write(SHOWS_KEY, data.shows)
-  Object.entries(data.songs || {}).forEach(([k, v]) => write(k, v))
+
+  const existing = read(SHOWS_KEY, [])
+  const byId = new Map(existing.map((s) => [s.id, s]))
+
+  let added = 0
+  let updated = 0
+  data.shows.forEach((show) => {
+    if (!show?.id) return
+    if (byId.has(show.id)) updated += 1
+    else added += 1
+    byId.set(show.id, { ...byId.get(show.id), ...show })
+  })
+  write(SHOWS_KEY, [...byId.values()])
+
+  let songs = 0
+  Object.entries(data.songs || {}).forEach(([key, value]) => {
+    // Only ever write our own namespace, never arbitrary keys from a file.
+    if (!key.startsWith('sp:song:')) return
+    write(key, value)
+    songs += 1
+  })
+
+  return { added, updated, untouched: existing.length - updated, songs }
 }
