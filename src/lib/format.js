@@ -15,6 +15,18 @@ export function semitoneLabel(n) {
   return n > 0 ? `+${n}` : `−${Math.abs(n)}`
 }
 
+/**
+ * Loop labels come from position, never from stored state: row 1 is always A/B,
+ * row 2 always C/D. Delete a row and the ones below re-letter themselves.
+ */
+export function loopLabels(index) {
+  const first = 65 + index * 2 // 65 = 'A'
+  return [String.fromCharCode(first), String.fromCharCode(first + 1)]
+}
+
+/** A–Z is 13 pairs; past that the labels would run off the end of the alphabet. */
+export const MAX_LOOPS = 13
+
 /** 0.85 → "85%" */
 export function percentLabel(rate) {
   return `${Math.round(rate * 100)}%`

@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { loadYouTubeAPI, FALLBACK_RATES } from '../lib/youtube'
 
-/** Poll cadence for the playhead and loop check, in ms. */
+/** Poll cadence while playing — tight enough that loops don't overshoot. */
 const POLL_MS = 50
+/** Idle cadence. A paused playhead only moves when the user scrubs it. */
+const IDLE_POLL_MS = 250
 
 /**
  * Wraps one YouTube IFrame player.
@@ -19,6 +21,9 @@ export function useYouTubePlayer({ videoId, loopRef, enabled = true }) {
   // repeated nudges would otherwise all read the same pre-seek value and a
   // double-tap of "back 5s" would only go back 5.
   const timeRef = useRef(0)
+  // A player that has never played reports getCurrentTime() === 0 however far
+  // you seek it, so until it has started once, our own value is the truthful one.
+  const startedRef = useRef(false)
 
   const [ready, setReady] = useState(false)
   const [playing, setPlaying] = useState(false)
@@ -66,6 +71,7 @@ export function useYouTubePlayer({ videoId, loopRef, enabled = true }) {
             setPlaying(e.data === YT.PlayerState.PLAYING)
             // Duration is often still 0 at onReady for some videos.
             if (e.data === YT.PlayerState.PLAYING) {
+              startedRef.current = true
               const d = e.target.getDuration?.() || 0
               if (d) setDuration(d)
             }
@@ -97,16 +103,26 @@ export function useYouTubePlayer({ videoId, loopRef, enabled = true }) {
   // you switch away to read a chart. Timers keep firing (throttled) when hidden,
   // so the loop survives. It also cuts re-renders from 60/s to 20/s per card,
   // which matters on a setlist with a dozen songs.
+  // Polls whenever the player exists, not only during playback: the position
+  // has to stay accurate while paused too, or "Set A" after scrubbing a paused
+  // video records a stale time. Setting the same number bails out of rendering,
+  // so idle polling is close to free. Loop enforcement stays gated on playback,
+  // since a paused playhead can't drift across the end point on its own.
   useEffect(() => {
-    if (!ready || !playing) return
+    if (!ready) return
 
     const tick = () => {
       const p = playerRef.current
       if (!p?.getCurrentTime) return
       const t = p.getCurrentTime() || 0
-      timeRef.current = t
-      setTime(t)
+      // Before first playback a reported 0 means "don't know", not "at the
+      // start" — keep whatever position we last seeked to.
+      if (startedRef.current || t > 0) {
+        timeRef.current = t
+        setTime(t)
+      }
 
+      if (!playing) return
       const loop = loopRef?.current
       if (loop?.loopOn && loop.loopA != null && loop.loopB != null && loop.loopB > loop.loopA) {
         // The lookahead absorbs the polling gap so we don't audibly overshoot
@@ -115,7 +131,7 @@ export function useYouTubePlayer({ videoId, loopRef, enabled = true }) {
       }
     }
 
-    const id = setInterval(tick, POLL_MS)
+    const id = setInterval(tick, playing ? POLL_MS : IDLE_POLL_MS)
     return () => clearInterval(id)
   }, [ready, playing, loopRef])
 

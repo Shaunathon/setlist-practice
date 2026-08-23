@@ -1,23 +1,25 @@
 import { useCallback, useRef } from 'react'
-import { timecode } from '../lib/format'
+import { loopLabels, timecode } from '../lib/format'
 
 /**
- * Scrub bar with a draggable A–B loop region.
+ * Scrub bar showing every loop section at once.
  *
- * Click anywhere to seek. Drag the A or B flag to reshape the loop while the
- * track keeps playing, which is how you actually dial in a tricky bar.
+ * Clicking inside a section jumps to that section's start — not the pixel you
+ * clicked — and makes it the active loop, which is the quick way to move
+ * between sections. Clicking anywhere else is an ordinary seek. The A/B flags
+ * stay draggable so you can reshape a section while it plays.
  */
 export default function LoopTimeline({
   duration,
   time,
-  loopA,
-  loopB,
-  loopOn,
+  loops,
+  activeLoopId,
   onSeek,
+  onJumpToLoop,
   onChangeLoop,
 }) {
   const trackRef = useRef(null)
-  const dragRef = useRef(null) // 'A' | 'B' | 'seek'
+  const dragRef = useRef(null) // { loopId, edge: 'a' | 'b' } | 'seek'
 
   const positionFromEvent = useCallback(
     (clientX) => {
@@ -30,33 +32,50 @@ export default function LoopTimeline({
     [duration]
   )
 
-  const handlePointerDown = (which) => (e) => {
-    e.preventDefault()
-    e.stopPropagation()
-    dragRef.current = which
-    e.currentTarget.setPointerCapture?.(e.pointerId)
-  }
+  const complete = (l) => l.a != null && l.b != null && l.b > l.a
 
   const handleTrackPointerDown = (e) => {
     if (!duration) return
+    const pos = positionFromEvent(e.clientX)
+
+    // Landing inside a section means "take me to this loop", not "seek here".
+    const hit = loops.find((l) => complete(l) && pos >= l.a && pos <= l.b)
+    if (hit) {
+      onJumpToLoop(hit.id)
+      return
+    }
+
     dragRef.current = 'seek'
     trackRef.current.setPointerCapture?.(e.pointerId)
-    onSeek(positionFromEvent(e.clientX))
+    onSeek(pos)
   }
 
   const handlePointerMove = (e) => {
-    const which = dragRef.current
-    if (!which || !duration) return
+    const drag = dragRef.current
+    if (!drag || !duration) return
     const pos = positionFromEvent(e.clientX)
 
-    if (which === 'seek') {
+    if (drag === 'seek') {
       onSeek(pos)
-    } else if (which === 'A') {
-      // Never let A cross B — clamp to just under it.
-      onChangeLoop({ loopA: loopB != null ? Math.min(pos, loopB - 0.1) : pos })
-    } else if (which === 'B') {
-      onChangeLoop({ loopB: loopA != null ? Math.max(pos, loopA + 0.1) : pos })
+      return
     }
+
+    const loop = loops.find((l) => l.id === drag.loopId)
+    if (!loop) return
+
+    // Never let the two edges cross.
+    if (drag.edge === 'a') {
+      onChangeLoop(loop.id, { a: loop.b != null ? Math.min(pos, loop.b - 0.1) : pos })
+    } else {
+      onChangeLoop(loop.id, { b: loop.a != null ? Math.max(pos, loop.a + 0.1) : pos })
+    }
+  }
+
+  const startEdgeDrag = (loopId, edge) => (e) => {
+    e.preventDefault()
+    e.stopPropagation()
+    dragRef.current = { loopId, edge }
+    e.currentTarget.setPointerCapture?.(e.pointerId)
   }
 
   const endDrag = () => {
@@ -64,7 +83,7 @@ export default function LoopTimeline({
   }
 
   const pct = (v) => (duration ? `${Math.min(Math.max((v / duration) * 100, 0), 100)}%` : '0%')
-  const hasLoop = loopA != null && loopB != null && loopB > loopA
+  const active = loops.find((l) => l.id === activeLoopId)
 
   return (
     <div className="select-none">
@@ -75,21 +94,62 @@ export default function LoopTimeline({
         onPointerUp={endDrag}
         onPointerCancel={endDrag}
         className="relative h-10 cursor-pointer rounded-md bg-panel-2 ring-1 ring-edge"
-        role="slider"
-        aria-label="Playback position"
-        aria-valuemin={0}
-        aria-valuemax={duration || 0}
-        aria-valuenow={time || 0}
-        aria-valuetext={timecode(time)}
-        tabIndex={-1}
       >
-        {/* Loop region */}
-        {hasLoop && (
-          <div
-            className={`absolute inset-y-0 ${loopOn ? 'bg-gold/25' : 'bg-muted/15'}`}
-            style={{ left: pct(loopA), width: pct(loopB - loopA) }}
-          />
-        )}
+        {loops.map((loop, i) => {
+          if (loop.a == null && loop.b == null) return null
+          const [labelA, labelB] = loopLabels(i)
+          const isActive = loop.id === activeLoopId
+          const spans = complete(loop)
+
+          return (
+            <div key={loop.id}>
+              {spans && (
+                <div
+                  className={`absolute inset-y-0 ${isActive ? 'bg-gold/30' : 'bg-muted/12'}`}
+                  style={{ left: pct(loop.a), width: pct(loop.b - loop.a) }}
+                />
+              )}
+
+              {loop.a != null && (
+                <button
+                  onPointerDown={startEdgeDrag(loop.id, 'a')}
+                  onPointerMove={handlePointerMove}
+                  onPointerUp={endDrag}
+                  aria-label={`Loop ${labelA} start at ${timecode(loop.a, true)} — drag to move`}
+                  className="absolute top-0 z-10 -ml-2 flex h-full w-4 cursor-ew-resize items-start justify-center"
+                  style={{ left: pct(loop.a) }}
+                >
+                  <span
+                    className={`rounded-br rounded-tl px-1 text-[10px] font-bold leading-4 ${
+                      isActive ? 'bg-gold text-ground' : 'bg-edge text-cream'
+                    }`}
+                  >
+                    {labelA}
+                  </span>
+                </button>
+              )}
+
+              {loop.b != null && (
+                <button
+                  onPointerDown={startEdgeDrag(loop.id, 'b')}
+                  onPointerMove={handlePointerMove}
+                  onPointerUp={endDrag}
+                  aria-label={`Loop ${labelB} end at ${timecode(loop.b, true)} — drag to move`}
+                  className="absolute top-0 z-10 -ml-2 flex h-full w-4 cursor-ew-resize items-end justify-center"
+                  style={{ left: pct(loop.b) }}
+                >
+                  <span
+                    className={`rounded-bl rounded-tr px-1 text-[10px] font-bold leading-4 ${
+                      isActive ? 'bg-rust text-cream' : 'bg-edge text-cream'
+                    }`}
+                  >
+                    {labelB}
+                  </span>
+                </button>
+              )}
+            </div>
+          )
+        })}
 
         {/* Elapsed shading */}
         <div
@@ -102,46 +162,14 @@ export default function LoopTimeline({
           className="pointer-events-none absolute inset-y-0 w-0.5 bg-cream"
           style={{ left: pct(time) }}
         />
-
-        {/* A handle */}
-        {loopA != null && (
-          <button
-            onPointerDown={handlePointerDown('A')}
-            onPointerMove={handlePointerMove}
-            onPointerUp={endDrag}
-            aria-label={`Loop start at ${timecode(loopA, true)} — drag to move`}
-            className="absolute top-0 z-10 -ml-2 flex h-full w-4 cursor-ew-resize items-start justify-center"
-            style={{ left: pct(loopA) }}
-          >
-            <span className="rounded-br rounded-tl bg-gold px-1 text-[10px] font-bold leading-4 text-ground">
-              A
-            </span>
-          </button>
-        )}
-
-        {/* B handle */}
-        {loopB != null && (
-          <button
-            onPointerDown={handlePointerDown('B')}
-            onPointerMove={handlePointerMove}
-            onPointerUp={endDrag}
-            aria-label={`Loop end at ${timecode(loopB, true)} — drag to move`}
-            className="absolute top-0 z-10 -ml-2 flex h-full w-4 cursor-ew-resize items-end justify-center"
-            style={{ left: pct(loopB) }}
-          >
-            <span className="rounded-bl rounded-tr bg-rust px-1 text-[10px] font-bold leading-4 text-cream">
-              B
-            </span>
-          </button>
-        )}
       </div>
 
       <div className="mt-1 flex justify-between font-mono text-xs text-muted">
         <span>{timecode(time)}</span>
-        {hasLoop && (
-          <span className={loopOn ? 'text-gold' : ''}>
-            loop {timecode(loopA, true)} → {timecode(loopB, true)} (
-            {(loopB - loopA).toFixed(1)}s)
+        {active && complete(active) && (
+          <span className="text-gold">
+            looping {loopLabels(loops.indexOf(active))[0]}→
+            {loopLabels(loops.indexOf(active))[1]} ({(active.b - active.a).toFixed(1)}s)
           </span>
         )}
         <span>{timecode(duration)}</span>

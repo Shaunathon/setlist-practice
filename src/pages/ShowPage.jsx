@@ -1,7 +1,14 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { AlertTriangle, ArrowLeft, CalendarDays, Eye, EyeOff, RefreshCw } from 'lucide-react'
-import { getShow, getSongSettings, saveSongSettings } from '../lib/storage'
+import {
+  clearRemovedIds,
+  getRemovedIds,
+  getShow,
+  getSongSettings,
+  removeSongId,
+  saveSongSettings,
+} from '../lib/storage'
 import { showDate } from '../lib/format'
 import SongCard from '../components/SongCard'
 import MetronomePanel from '../components/MetronomePanel'
@@ -15,6 +22,15 @@ export default function ShowPage() {
   const [reloadKey, setReloadKey] = useState(0)
   const [doneMap, setDoneMap] = useState({}) // videoId -> learned?
   const [hideDone, setHideDone] = useState(false)
+  const [removedIds, setRemovedIds] = useState(() => getRemovedIds(id))
+
+  // Whichever card is currently making sound, plus how to silence it.
+  const playingRef = useRef(null)
+  const claimPlayback = useCallback((videoId, pause) => {
+    const previous = playingRef.current
+    if (previous && previous.videoId !== videoId) previous.pause()
+    playingRef.current = { videoId, pause }
+  }, [])
 
   useEffect(() => {
     setShow(getShow(id))
@@ -92,11 +108,37 @@ export default function ShowPage() {
   // "Learned" lives here rather than inside each card: the header count and the
   // hide toggle both need it, and a card owning it privately meant neither ever
   // updated until a reload.
-  const doneCount = Object.values(doneMap).filter(Boolean).length
-  const visibleSongs = useMemo(
-    () => (hideDone ? songs.filter((s) => !doneMap[s.videoId]) : songs),
-    [hideDone, songs, doneMap]
+  // Removed videos drop out of the list and out of the learned maths entirely —
+  // "8 of 9" should count the songs you're actually working on.
+  const keptSongs = useMemo(
+    () => songs.filter((s) => !removedIds.includes(s.videoId)),
+    [songs, removedIds]
   )
+  const doneCount = keptSongs.filter((s) => doneMap[s.videoId]).length
+  const visibleSongs = useMemo(
+    () => (hideDone ? keptSongs.filter((s) => !doneMap[s.videoId]) : keptSongs),
+    [hideDone, keptSongs, doneMap]
+  )
+
+  const removeSong = useCallback(
+    (videoId) => {
+      // Settings are left in storage on purpose, so a song that comes back on
+      // Refresh still has its loop sections and notes.
+      setRemovedIds(removeSongId(show.id, videoId).slice())
+      if (playingRef.current?.videoId === videoId) {
+        playingRef.current.pause()
+        playingRef.current = null
+      }
+    },
+    [show?.id]
+  )
+
+  const refresh = useCallback(() => {
+    // Refresh is the deliberate re-sync: everything comes back, plus anything
+    // added to the playlist since.
+    setRemovedIds(clearRemovedIds(show.id))
+    setReloadKey((k) => k + 1)
+  }, [show?.id])
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-8 pb-28">
@@ -119,7 +161,10 @@ export default function ShowPage() {
         <div className="flex items-center gap-3">
           {status === 'ready' && (
             <span className="text-sm text-muted">
-              <span className="text-cream">{doneCount}</span> / {songs.length} learned
+              <span className="text-cream">{doneCount}</span> / {keptSongs.length} learned
+              {removedIds.length > 0 && (
+                <span className="ml-2 text-muted/70">· {removedIds.length} removed</span>
+              )}
             </span>
           )}
 
@@ -138,9 +183,9 @@ export default function ShowPage() {
             </button>
           )}
           <button
-            onClick={() => setReloadKey((k) => k + 1)}
+            onClick={refresh}
             className="flex items-center gap-1.5 rounded-md bg-panel-2 px-3 py-1.5 text-sm ring-1 ring-edge hover:bg-edge"
-            title="Re-fetch the playlist from YouTube"
+            title="Re-sync with YouTube — restores removed videos and picks up new ones"
           >
             <RefreshCw size={14} className={status === 'loading' ? 'animate-spin' : ''} />
             Refresh
@@ -171,7 +216,7 @@ export default function ShowPage() {
       )}
 
       {/* Hiding the last unlearned song would otherwise leave a blank page. */}
-      {status === 'ready' && songs.length > 0 && visibleSongs.length === 0 && (
+      {status === 'ready' && keptSongs.length > 0 && visibleSongs.length === 0 && (
         <div className="rounded-lg border border-dashed border-edge px-4 py-10 text-center">
           <p className="text-muted">
             Every song is marked learned. Nice — you're ready for this one.
@@ -180,9 +225,15 @@ export default function ShowPage() {
             onClick={() => setHideDone(false)}
             className="mt-3 text-sm text-gold underline"
           >
-            Show all {songs.length} anyway
+            Show all {keptSongs.length} anyway
           </button>
         </div>
+      )}
+
+      {status === 'ready' && songs.length > 0 && keptSongs.length === 0 && (
+        <p className="py-12 text-center text-muted">
+          Every video is removed. Hit Refresh to bring them back.
+        </p>
       )}
 
       <div className="space-y-3">
@@ -193,10 +244,12 @@ export default function ShowPage() {
               showId={show.id}
               song={song}
               // Keep the playlist's own numbering so it doesn't reshuffle
-              // when songs are hidden.
-              index={songs.indexOf(song)}
+              // when songs are hidden or removed.
+              index={keptSongs.indexOf(song)}
               done={!!doneMap[song.videoId]}
               onToggleDone={() => toggleDone(song.videoId)}
+              onRemove={() => removeSong(song.videoId)}
+              claimPlayback={claimPlayback}
             />
           ))}
       </div>

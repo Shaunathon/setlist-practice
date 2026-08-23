@@ -51,6 +51,38 @@ Each `SongCard` owns both, and only one makes sound at a time:
 - **Don't depend on a hook's whole return object in a `useEffect`.** These hooks
   return fresh object literals every render; depend on the individual `useCallback`
   values or the effect fires 20 times a second.
+- **A YouTube player that has never played reports `getCurrentTime() === 0`**
+  however far you seek it. `useYouTubePlayer` keeps a `startedRef` and trusts its
+  own optimistic position until the player has entered PLAYING once — otherwise
+  "Set A" on a scrubbed-but-unplayed video records zero.
+- **Never put two background utilities on one element** (`bg-panel-2` from the
+  base class plus `bg-gold` from the "on" class). Tailwind emits both and
+  stylesheet order picks the winner regardless of class-attribute order, which
+  silently left armed toggles as dark text on a dark background. Toggles go
+  through `toggleBtn(on)`, which picks exactly one treatment.
+
+### Loops
+
+A song holds an ordered `loops: [{ id, a, b }]` plus one `activeLoopId`. Only the
+active section repeats — arming one disarms the others.
+
+**Labels come from position, never storage**: row 0 is A/B, row 1 is C/D. Delete
+a row and everything below re-letters itself, so never persist a label.
+
+Both engines only understand a single loop, so `SongCard.activeLoopFor()`
+flattens the armed section into the `{ loopA, loopB, loopOn }` shape `loopRef`
+carries. Settings saved before this existed used `loopA`/`loopB`/`loopOn`
+directly; `migrateSongSettings` in `storage.js` folds those into the first row,
+so don't reintroduce reads of the old keys.
+
+### Removed videos
+
+The shared playlists carry several versions of the same tune and can't be edited,
+so `sp:removed:<showId>` is a personal filter over someone else's playlist —
+nothing is ever written to YouTube. Removals persist across reloads; **Refresh is
+the deliberate re-sync** that clears the list and picks up new additions.
+Per-song settings are deliberately left in storage when a video is removed, so a
+song that comes back still has its loop sections and notes.
 
 ### The playlist function
 

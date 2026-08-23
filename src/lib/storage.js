@@ -6,6 +6,7 @@
 
 const SHOWS_KEY = 'sp:shows'
 const songKey = (showId, videoId) => `sp:song:${showId}:${videoId}`
+const removedKey = (showId) => `sp:removed:${showId}`
 
 function read(key, fallback) {
   try {
@@ -55,6 +56,7 @@ export function deleteShow(id) {
   Object.keys(localStorage)
     .filter((k) => k.startsWith(prefix))
     .forEach((k) => localStorage.removeItem(k))
+  localStorage.removeItem(removedKey(id))
 }
 
 export function newShowId() {
@@ -67,21 +69,79 @@ export const DEFAULT_SONG_SETTINGS = {
   rate: 1, // YouTube playback rate (must be one of the allowed steps)
   tempo: 1, // audio-file mode: continuous 0.25–2.0
   pitch: 0, // audio-file mode: semitones, -12…+12
-  loopA: null, // seconds, or null
-  loopB: null, // seconds, or null
-  loopOn: false,
+  loops: [], // ordered [{ id, a, b }] — labels (A/B, C/D…) come from position
+  activeLoopId: null, // the one section currently repeating, or null
   notes: '',
   done: false, // "I know this one" checkbox
 }
 
+export function newLoopId() {
+  return `loop_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
+}
+
+/**
+ * Settings were once a single loop (loopA/loopB/loopOn). Fold that into the
+ * first entry of the loops array so existing loop points survive the upgrade.
+ */
+function migrateSongSettings(raw) {
+  if (!raw || typeof raw !== 'object') return {}
+  const out = { ...raw }
+
+  if (!Array.isArray(out.loops)) {
+    if (out.loopA != null || out.loopB != null) {
+      const id = newLoopId()
+      out.loops = [{ id, a: out.loopA ?? null, b: out.loopB ?? null }]
+      out.activeLoopId = out.loopOn ? id : null
+    } else {
+      out.loops = []
+      out.activeLoopId = null
+    }
+  }
+
+  delete out.loopA
+  delete out.loopB
+  delete out.loopOn
+  return out
+}
+
 export function getSongSettings(showId, videoId) {
-  return { ...DEFAULT_SONG_SETTINGS, ...read(songKey(showId, videoId), {}) }
+  return {
+    ...DEFAULT_SONG_SETTINGS,
+    ...migrateSongSettings(read(songKey(showId, videoId), {})),
+  }
 }
 
 export function saveSongSettings(showId, videoId, patch) {
   const next = { ...getSongSettings(showId, videoId), ...patch }
   write(songKey(showId, videoId), next)
   return next
+}
+
+/* --------------------------------------------------------- removed songs -- */
+
+/**
+ * Videos hidden from a show's list. The shared YouTube playlists carry several
+ * versions of the same tune and can't be edited, so this is a personal filter
+ * over someone else's playlist — nothing is ever sent to YouTube.
+ *
+ * Per-song settings are deliberately NOT deleted alongside, so a song that
+ * comes back on Refresh still has its loops and notes.
+ */
+export function getRemovedIds(showId) {
+  return read(removedKey(showId), [])
+}
+
+export function removeSongId(showId, videoId) {
+  const ids = getRemovedIds(showId)
+  if (!ids.includes(videoId)) ids.push(videoId)
+  write(removedKey(showId), ids)
+  return ids
+}
+
+/** Refresh is the deliberate "re-sync with YouTube" action: everything back. */
+export function clearRemovedIds(showId) {
+  write(removedKey(showId), [])
+  return []
 }
 
 /* ------------------------------------------------------ backup / restore -- */
