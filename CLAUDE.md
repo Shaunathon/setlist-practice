@@ -73,6 +73,19 @@ Selecting a section always drops the playhead at its start, whether via the
 row's Loop button or by clicking the section on the scrub bar. Seeking anywhere
 that isn't a section releases the armed one and plays on from exactly there.
 
+Each endpoint is trimmed by arrows flanking its own Set button (`◂ Set A ▸`),
+which moves 100ms per click. The arrow's position *is* the endpoint selection —
+there is deliberately no "select an endpoint, then nudge" step, because the bug
+that removed marker dragging was exactly a hidden selection mechanism.
+
+Nudging a **start** point also seeks the playhead to it, so you hear whether the
+section now catches the pickup; nudging an **end** point does not, since you'd
+hear that on the loop's next pass and jumping mid-phrase is disorienting. The
+asymmetry is intentional — don't "fix" it.
+
+`setPoint` clears a partner point that the new one invalidates, in both
+directions, so a section can never end up backwards or zero-length.
+
 **The scrub bar's section markers must stay `pointer-events: none`.** They were
 draggable once; practice loops are only a percent or two of the bar, so the drag
 targets covered the region and swallowed the clicks meant to select it. Points

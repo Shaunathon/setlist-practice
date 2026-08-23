@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Check,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   FileAudio,
   Music4,
   Pause,
@@ -32,6 +34,15 @@ const btn = `${btnBase} ${btnOff}`
 
 /** Toggle buttons pick exactly one of the two background treatments. */
 const toggleBtn = (on) => `${btnBase} ${on ? btnOn : btnOff}`
+
+// Segmented [◂][Set X][▸] group: one ring around the trio rather than three.
+const segGroup = 'flex overflow-hidden rounded-md ring-1 ring-edge'
+const segBtn =
+  'inline-flex items-center justify-center bg-panel-2 text-cream text-sm ' +
+  'hover:bg-edge transition-colors disabled:opacity-40 disabled:cursor-not-allowed'
+
+/** How far one nudge moves a loop point, in seconds. */
+const NUDGE_SECONDS = 0.1
 
 export default function SongCard({
   showId,
@@ -138,11 +149,13 @@ export default function SongCard({
       setSettings((prev) => {
         const loops = prev.loops.map((l) => {
           if (l.id !== loopId) return l
+          // Whichever point you place most recently wins; a partner that the
+          // new point has invalidated is cleared rather than left to form a
+          // backwards or zero-length section.
           if (edge === 'a') {
-            // Drop a stale end that now sits before the new start.
             return { ...l, a: t, b: l.b != null && l.b > t ? l.b : null }
           }
-          return { ...l, b: t }
+          return { ...l, b: t, a: l.a != null && l.a < t ? l.a : null }
         })
 
         const edited = loops.find((l) => l.id === loopId)
@@ -157,6 +170,36 @@ export default function SongCard({
       })
     },
     [nowAt, showId, song.videoId]
+  )
+
+  /**
+   * Shift one edge of a section by a small step.
+   *
+   * Moving a start point also takes the playhead there, so you immediately hear
+   * whether the section now catches the pickup note. Moving an end point
+   * deliberately doesn't — you'd hear that on the loop's next pass anyway, and
+   * jumping to the end mid-phrase would be disorienting.
+   */
+  const nudgePoint = useCallback(
+    (loopId, edge, delta) => {
+      const loop = settings.loops.find((l) => l.id === loopId)
+      const current = loop?.[edge]
+      if (current == null) return
+
+      let moved = Math.max(0, current + delta)
+      // Keep the edges from crossing, and the end inside the track.
+      if (edge === 'a' && loop.b != null) moved = Math.min(moved, loop.b - NUDGE_SECONDS)
+      if (edge === 'b') {
+        if (loop.a != null) moved = Math.max(moved, loop.a + NUDGE_SECONDS)
+        if (duration) moved = Math.min(moved, duration)
+      }
+
+      update({
+        loops: settings.loops.map((l) => (l.id === loopId ? { ...l, [edge]: moved } : l)),
+      })
+      if (edge === 'a') engineRef.current?.seek(moved)
+    },
+    [settings.loops, update, duration]
   )
 
   /**
@@ -247,13 +290,24 @@ export default function SongCard({
       const targetId =
         settings.activeLoopId ?? settings.loops[settings.loops.length - 1]?.id ?? null
 
+      // Arrows do three different jobs depending on the modifier: bare is
+      // ordinary scrubbing, shift trims the section's start, alt trims its end.
+      if (k === 'arrowleft' || k === 'arrowright') {
+        e.preventDefault()
+        const direction = k === 'arrowleft' ? -1 : 1
+        if (e.shiftKey && targetId) nudgePoint(targetId, 'a', direction * NUDGE_SECONDS)
+        else if (e.altKey && targetId) nudgePoint(targetId, 'b', direction * NUDGE_SECONDS)
+        else engine.nudge(direction * 5)
+        return
+      }
+
+      // A and D rather than A and B: they sit under the same two fingers, so
+      // you can mark both ends without looking down.
       const handlers = {
         ' ': () => engine.toggle(),
         a: () => (targetId ? setPoint(targetId, 'a') : addLoop()),
-        b: () => targetId && setPoint(targetId, 'b'),
+        d: () => targetId && setPoint(targetId, 'b'),
         l: () => targetId && toggleLoop(targetId),
-        arrowleft: () => engine.nudge(-5),
-        arrowright: () => engine.nudge(5),
       }
       const fn = handlers[k === ' ' ? ' ' : k]
       if (fn) {
@@ -261,7 +315,7 @@ export default function SongCard({
         fn()
       }
     },
-    [engine, setPoint, toggleLoop, addLoop, settings.activeLoopId, settings.loops]
+    [engine, setPoint, toggleLoop, addLoop, nudgePoint, settings.activeLoopId, settings.loops]
   )
 
   const activeLoop = useMemo(
@@ -429,20 +483,40 @@ export default function SongCard({
 
                 return (
                   <div key={loop.id} className="flex flex-wrap items-center gap-1.5">
-                    <button
-                      className={btn}
-                      onClick={() => setPoint(loop.id, 'a')}
-                      title={`Set section ${labelA} start at the playhead`}
-                    >
-                      Set {labelA}
-                    </button>
-                    <button
-                      className={btn}
-                      onClick={() => setPoint(loop.id, 'b')}
-                      title={`Set section ${labelB} end at the playhead`}
-                    >
-                      Set {labelB}
-                    </button>
+                    {/* The arrow's position is the selection — there's no
+                        "pick an endpoint first" step to get wrong. */}
+                    {[
+                      { edge: 'a', label: labelA, word: 'start' },
+                      { edge: 'b', label: labelB, word: 'end' },
+                    ].map(({ edge, label, word }) => (
+                      <div key={edge} className={segGroup}>
+                        <button
+                          className={`${segBtn} px-1.5`}
+                          onClick={() => nudgePoint(loop.id, edge, -NUDGE_SECONDS)}
+                          disabled={loop[edge] == null}
+                          title={`Move ${label} back 100ms`}
+                          aria-label={`Move section ${label} ${word} back 100 milliseconds`}
+                        >
+                          <ChevronLeft size={14} />
+                        </button>
+                        <button
+                          className={`${segBtn} border-x border-edge px-2.5 py-1.5`}
+                          onClick={() => setPoint(loop.id, edge)}
+                          title={`Set ${label} ${word} at the playhead`}
+                        >
+                          Set {label}
+                        </button>
+                        <button
+                          className={`${segBtn} px-1.5`}
+                          onClick={() => nudgePoint(loop.id, edge, NUDGE_SECONDS)}
+                          disabled={loop[edge] == null}
+                          title={`Move ${label} forward 100ms`}
+                          aria-label={`Move section ${label} ${word} forward 100 milliseconds`}
+                        >
+                          <ChevronRight size={14} />
+                        </button>
+                      </div>
+                    ))}
                     <button
                       className={toggleBtn(isActive)}
                       onClick={() => toggleLoop(loop.id)}
@@ -592,8 +666,9 @@ export default function SongCard({
 
             <div className="flex items-end justify-between gap-3">
               <p className="text-[11px] leading-relaxed text-muted/70">
-                Click the card, then: <b>space</b> play · <b>A</b>/<b>B</b> set the armed
-                section · <b>L</b> loop on/off · <b>←</b>/<b>→</b> ±5s
+                Click the card, then: <b>space</b> play · <b>A</b>/<b>D</b> mark the armed
+                section · <b>L</b> loop on/off · <b>←</b>/<b>→</b> ±5s ·{' '}
+                <b>shift</b>/<b>alt</b>+<b>←→</b> nudge start/end 100ms
               </p>
               <button
                 onClick={onRemove}
