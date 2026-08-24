@@ -10,6 +10,7 @@ import {
   Play,
   Plus,
   Repeat,
+  RotateCcw,
   SkipBack,
   FastForward,
   Trash2,
@@ -53,6 +54,13 @@ const NUDGE_SECONDS = 0.1
 const MAX_PITCH = 6
 const clampPitch = (n) => Math.min(MAX_PITCH, Math.max(-MAX_PITCH, Math.round(n)))
 
+/** Minimum playback-loop length the 1/2 button can reach, in seconds. */
+const PRACTICE_FLOOR = 0.2
+
+function loopIsComplete(l) {
+  return l != null && l.a != null && l.b != null && l.b > l.a
+}
+
 export default function SongCard({
   showId,
   song,
@@ -68,19 +76,11 @@ export default function SongCard({
   const cardRef = useRef(null)
   const fileInputRef = useRef(null)
 
-  // Both engines only ever repeat one section, so collapse whichever loop is
-  // active down to the flat shape they expect. An incomplete section (only one
-  // point placed) simply doesn't loop.
-  const activeLoopFor = (s) => {
-    const l = s.loops.find((x) => x.id === s.activeLoopId)
-    return l && l.a != null && l.b != null && l.b > l.a
-      ? { loopA: l.a, loopB: l.b, loopOn: true }
-      : { loopA: null, loopB: null, loopOn: false }
-  }
-
-  // The polling loops inside both engines read this ref, so loop edits take
-  // effect instantly without re-subscribing anything.
-  const loopRef = useRef(activeLoopFor(settings))
+  // Placeholder — corrected below once computeLoopRef exists, by the same
+  // effect that resets the practice-length adjustment. Kept inert here rather
+  // than computed inline so this doesn't have to be defined before duration
+  // and practiceLength exist.
+  const loopRef = useRef({ loopA: null, loopB: null, loopOn: false })
 
   const yt = useYouTubePlayer({ videoId: song.videoId, loopRef })
   const audio = useAudioEngine({ loopRef })
@@ -104,17 +104,57 @@ export default function SongCard({
   engineRef.current = engine
   const { playing, time, duration } = engine
 
+  // Practice-loop scaling (1/2, x2 in the transport row) is deliberately
+  // ephemeral — not saved, not remembered when you switch loops — so it lives
+  // as ordinary state, mirrored into refs for the code that needs the latest
+  // value without taking it as a dependency (the polling loops, and anything
+  // that must read it synchronously inside a setSettings updater).
+  const durationRef = useRef(duration)
+  durationRef.current = duration
+
+  const [practiceLength, setPracticeLength] = useState(null) // seconds, or null = full loop
+  const practiceLengthRef = useRef(null)
+  practiceLengthRef.current = practiceLength
+
+  /**
+   * Both engines only ever repeat one section, so collapse whichever loop is
+   * active down to the flat shape they expect.
+   *
+   * When no practice adjustment is in effect, the stored bounds pass straight
+   * through with no clamping at all — deliberately, so this never depends on
+   * `duration` being known yet, which matters on the very first render before
+   * the player has reported anything.
+   */
+  const computeLoopRef = useCallback((s) => {
+    const l = s.loops.find((x) => x.id === s.activeLoopId)
+    if (!loopIsComplete(l)) return { loopA: null, loopB: null, loopOn: false }
+
+    if (practiceLengthRef.current == null) {
+      return { loopA: l.a, loopB: l.b, loopOn: true }
+    }
+
+    // The ideal length is never clamped in storage — only the value actually
+    // enforced is. That's what lets an over-doubled or over-halved request
+    // "remember" where it really was, so an equal number of the opposite
+    // button always lands back on the loop's real endpoint, even after
+    // bumping into the floor or the end of the track.
+    const ideal = practiceLengthRef.current
+    const ceiling = durationRef.current ? durationRef.current - l.a : ideal
+    const clamped = Math.min(Math.max(ideal, PRACTICE_FLOOR), Math.max(ceiling, PRACTICE_FLOOR))
+    return { loopA: l.a, loopB: l.a + clamped, loopOn: true }
+  }, [])
+
   /** Merge a settings patch, persist it, and keep the loop ref in sync. */
   const update = useCallback(
     (patch) => {
       setSettings((prev) => {
         const next = { ...prev, ...patch }
-        loopRef.current = activeLoopFor(next)
+        loopRef.current = computeLoopRef(next)
         saveSongSettings(showId, song.videoId, patch)
         return next
       })
     },
-    [showId, song.videoId]
+    [showId, song.videoId, computeLoopRef]
   )
 
   // Restore the saved YouTube rate once the player exists.
@@ -185,17 +225,17 @@ export default function SongCard({
         })
 
         const edited = loops.find((l) => l.id === loopId)
-        const complete = edited && edited.a != null && edited.b != null && edited.b > edited.a
+        const complete = loopIsComplete(edited)
         // Placing a valid end point means you want to hear that section.
         const activeLoopId = edge === 'b' && complete ? loopId : prev.activeLoopId
 
         const next = { ...prev, loops, activeLoopId }
-        loopRef.current = activeLoopFor(next)
+        loopRef.current = computeLoopRef(next)
         saveSongSettings(showId, song.videoId, { loops, activeLoopId })
         return next
       })
     },
-    [nowAt, showId, song.videoId]
+    [nowAt, showId, song.videoId, computeLoopRef]
   )
 
   /**
@@ -232,11 +272,19 @@ export default function SongCard({
    * Arm a section and drop the playhead at its start. Selecting a section is
    * always a request to hear it from the top, whether you got there from the
    * row's Loop button or by clicking the section on the scrub bar.
+   *
+   * Also always clears any 1/2 / x2 adjustment, even when re-arming the loop
+   * that's already active. Clicking a loop's own region on the timeline is
+   * exactly that case — activeLoopId doesn't change, so the effect that
+   * clears the adjustment on a *different* armed loop never fires; this is
+   * the only path re-clicking the same region goes through.
    */
   const armLoop = useCallback(
     (loopId) => {
       const loop = settings.loops.find((l) => l.id === loopId)
       if (!loop) return
+      practiceLengthRef.current = null
+      setPracticeLength(null)
       update({ activeLoopId: loopId })
       if (loop.a != null) engineRef.current?.seek(loop.a)
     },
@@ -271,13 +319,13 @@ export default function SongCard({
       setSettings((prev) => {
         if (!prev.activeLoopId) return prev // already free — no write, no re-render
         const next = { ...prev, activeLoopId: null }
-        loopRef.current = activeLoopFor(next)
+        loopRef.current = computeLoopRef(next)
         saveSongSettings(showId, song.videoId, { activeLoopId: null })
         return next
       })
       engineRef.current?.seek(seconds)
     },
-    [showId, song.videoId]
+    [showId, song.videoId, computeLoopRef]
   )
 
   /**
@@ -311,6 +359,69 @@ export default function SongCard({
     [update, settings.loops, settings.activeLoopId]
   )
 
+  const activeLoop = useMemo(
+    () => settings.loops.find((l) => l.id === settings.activeLoopId) || null,
+    [settings.loops, settings.activeLoopId]
+  )
+
+  // Whenever a different section is armed, or the armed one's own points move,
+  // a stale scaling factor wouldn't mean anything against the new bounds — so
+  // drop back to the full loop. This also does the one-time job of syncing
+  // loopRef from the inert placeholder it starts with.
+  useEffect(() => {
+    practiceLengthRef.current = null
+    setPracticeLength(null)
+    loopRef.current = computeLoopRef(settings)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settings.activeLoopId, activeLoop?.a, activeLoop?.b])
+
+  const activeLoopComplete = loopIsComplete(activeLoop)
+  const naturalLength = activeLoopComplete ? activeLoop.b - activeLoop.a : null
+  const practiceCeiling = activeLoopComplete && duration ? duration - activeLoop.a : null
+
+  // The displayed/enforced length clamps; the stored `practiceLength` itself
+  // never does, which is what lets an over-doubled or over-halved request find
+  // its way back exactly to the original once enough opposite presses land.
+  const displayLength =
+    practiceLength == null
+      ? naturalLength
+      : naturalLength == null
+        ? null
+        : Math.min(
+            Math.max(practiceLength, PRACTICE_FLOOR),
+            Math.max(practiceCeiling ?? practiceLength, PRACTICE_FLOOR)
+          )
+
+  const canHalve = displayLength != null && displayLength > PRACTICE_FLOOR + 1e-9
+  const canDouble =
+    displayLength != null && practiceCeiling != null && displayLength < practiceCeiling - 1e-9
+  const showPracticeAdjustment =
+    displayLength != null && naturalLength != null && Math.abs(displayLength - naturalLength) > 1e-6
+  const practiceEnd = showPracticeAdjustment ? activeLoop.a + displayLength : null
+
+  const halvePracticeLength = useCallback(() => {
+    if (!activeLoopComplete) return
+    const current = practiceLengthRef.current ?? naturalLength
+    const next = current / 2
+    practiceLengthRef.current = next
+    setPracticeLength(next)
+    loopRef.current = computeLoopRef(settings)
+  }, [activeLoopComplete, naturalLength, settings, computeLoopRef])
+
+  const doublePracticeLength = useCallback(() => {
+    if (!activeLoopComplete) return
+    const current = practiceLengthRef.current ?? naturalLength
+    const next = current * 2
+    practiceLengthRef.current = next
+    setPracticeLength(next)
+    loopRef.current = computeLoopRef(settings)
+  }, [activeLoopComplete, naturalLength, settings, computeLoopRef])
+
+  const resetPracticeLength = useCallback(() => {
+    practiceLengthRef.current = null
+    setPracticeLength(null)
+    loopRef.current = computeLoopRef(settings)
+  }, [settings, computeLoopRef])
 
   const handleFile = useCallback(
     async (file) => {
@@ -373,11 +484,6 @@ export default function SongCard({
     [engine, setPoint, toggleLoop, addLoop, nudgePoint, settings.activeLoopId, settings.loops]
   )
 
-  const activeLoop = useMemo(
-    () => settings.loops.find((l) => l.id === settings.activeLoopId) || null,
-    [settings.loops, settings.activeLoopId]
-  )
-
   return (
     <section
       ref={cardRef}
@@ -413,7 +519,7 @@ export default function SongCard({
           <span className="rounded bg-gold/20 px-1.5 py-0.5 font-mono text-xs text-gold">
             {settings.rate !== 1 && percentLabel(settings.rate)}
             {settings.rate !== 1 && extensionTranspose && pitch !== 0 && ' · '}
-            {extensionTranspose && pitch !== 0 && `${semitoneLabel(pitch)} st`}
+            {extensionTranspose && pitch !== 0 && `${semitoneLabel(pitch)} semis`}
           </span>
         )}
         {mode === 'audio' && (
@@ -509,6 +615,7 @@ export default function SongCard({
               time={time}
               loops={settings.loops}
               activeLoopId={settings.activeLoopId}
+              practiceEnd={practiceEnd}
               onSeek={seekOutside}
               onJumpToLoop={armLoop}
             />
@@ -542,6 +649,35 @@ export default function SongCard({
               <button className={btn} onClick={() => engine.nudge(5)} title="Forward 5s (→)">
                 <FastForward size={15} />
               </button>
+
+              <span className="mx-1 h-5 w-px bg-edge" />
+
+              <button
+                className={btn}
+                onClick={halvePracticeLength}
+                disabled={!canHalve}
+                title="Halve the playback loop's length (doesn't change its set points)"
+              >
+                1/2
+              </button>
+              <button
+                className={btn}
+                onClick={doublePracticeLength}
+                disabled={!canDouble}
+                title="Double the playback loop's length (doesn't change its set points)"
+              >
+                x2
+              </button>
+              {showPracticeAdjustment && (
+                <button
+                  className={btn}
+                  onClick={resetPracticeLength}
+                  title="Return to the full loop"
+                  aria-label="Return playback to the full loop"
+                >
+                  <RotateCcw size={15} />
+                </button>
+              )}
             </div>
 
             {/* Looper rows — one section per row, lettered by position */}
@@ -549,7 +685,7 @@ export default function SongCard({
               {settings.loops.map((loop, i) => {
                 const [labelA, labelB] = loopLabels(i)
                 const isActive = loop.id === settings.activeLoopId
-                const complete = loop.a != null && loop.b != null && loop.b > loop.a
+                const complete = loopIsComplete(loop)
 
                 return (
                   <div key={loop.id} className="flex flex-wrap items-center gap-1.5">
@@ -701,7 +837,7 @@ export default function SongCard({
                 <label className="text-xs uppercase tracking-wide text-muted">Transpose</label>
                 <span className="font-mono text-sm text-gold">
                   {mode === 'audio' || extensionTranspose
-                    ? `${semitoneLabel(pitch)} st`
+                    ? `${semitoneLabel(pitch)} semis`
                     : '—'}
                 </span>
               </div>

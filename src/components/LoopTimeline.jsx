@@ -12,8 +12,20 @@ import { loopLabels, timecode } from '../lib/format'
  * The section markers are deliberately NOT draggable. Practice loops are short,
  * so drag targets sat on top of most of the region and swallowed the clicks that
  * were meant to select it. Points are moved with the Set buttons instead.
+ *
+ * `practiceEnd` draws a dotted marker for the 1/2 / x2 playback-length
+ * adjustment in the transport row — separate from the section's own A/B flags,
+ * which always show the real saved bounds regardless of that adjustment.
  */
-export default function LoopTimeline({ duration, time, loops, activeLoopId, onSeek, onJumpToLoop }) {
+export default function LoopTimeline({
+  duration,
+  time,
+  loops,
+  activeLoopId,
+  practiceEnd,
+  onSeek,
+  onJumpToLoop,
+}) {
   const trackRef = useRef(null)
   const draggingRef = useRef(false)
 
@@ -72,6 +84,10 @@ export default function LoopTimeline({ duration, time, loops, activeLoopId, onSe
           if (loop.a == null && loop.b == null) return null
           const [labelA, labelB] = loopLabels(i)
           const isActive = loop.id === activeLoopId
+          // Adjacent sections with no gap between them used to be one solid
+          // blob of the same shade. Alternating by position — like striped
+          // table rows — keeps them tellable apart even back-to-back.
+          const stripeShade = i % 2 === 0 ? 'bg-muted/10' : 'bg-muted/22'
 
           return (
             // pointer-events-none throughout: every click belongs to the track,
@@ -79,7 +95,7 @@ export default function LoopTimeline({ duration, time, loops, activeLoopId, onSe
             <div key={loop.id} className="pointer-events-none">
               {complete(loop) && (
                 <div
-                  className={`absolute inset-y-0 ${isActive ? 'bg-gold/30' : 'bg-muted/12'}`}
+                  className={`absolute inset-y-0 ${isActive ? 'bg-gold/30' : stripeShade}`}
                   style={{ left: pct(loop.a), width: pct(loop.b - loop.a) }}
                 />
               )}
@@ -120,6 +136,16 @@ export default function LoopTimeline({ duration, time, loops, activeLoopId, onSe
           className="pointer-events-none absolute inset-y-0 w-0.5 bg-cream"
           style={{ left: pct(time) }}
         />
+
+        {/* Practice-loop endpoint, when 1/2 or x2 has moved it off the armed
+            section's real end point. Distinct from both the solid playhead
+            and the A/B flags, which keep showing the actual saved bounds. */}
+        {practiceEnd != null && (
+          <div
+            className="pointer-events-none absolute inset-y-0 border-l-2 border-dotted border-gold"
+            style={{ left: pct(practiceEnd) }}
+          />
+        )}
       </div>
 
       <div className="mt-1 flex justify-between font-mono text-xs text-muted">

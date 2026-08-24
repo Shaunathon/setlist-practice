@@ -103,6 +103,38 @@ The transport row is asymmetric on purpose: the left button is skip-to-start
 5-second rewind, while the right button still nudges forward 5s. Back-by-5s
 lives on the left arrow key.
 
+### Practice-length scaling (1/2, x2, reset)
+
+The transport row's 1/2 and x2 buttons scale how much of the armed section
+actually repeats, without touching its saved A/B points — `practiceLength`
+(component state, `null` = full loop) holds this, mirrored into
+`practiceLengthRef` so `computeLoopRef` can read it synchronously inside
+`setSettings` updaters without becoming a dependency of every callback that
+touches `loopRef`.
+
+**The stored value is never clamped — only what's enforced/displayed is.**
+Each press multiplies or divides `practiceLength` by exactly 2, with no ceiling
+or floor applied to the number itself. `computeLoopRef` and the UI's
+`displayLength` separately clamp that value to `[PRACTICE_FLOOR, duration - a]`
+only when actually using it. This is what lets x2 pushed past the end of the
+track still be undone by an equal number of 1/2 presses: the ideal value kept
+growing past the clamp the whole time, so halving it back down eventually drops
+below the ceiling again and the *displayed* length becomes exact, not derived
+from whatever the display was pinned at. Don't clamp the stored value directly
+— that breaks exact reversibility, which is the entire point.
+
+**Never persisted, and never remembered across arming a different loop** —
+switching away and back always comes back to the full loop, on purpose.
+
+**Cleared in three places, not just one effect watching `activeLoopId`**:
+`armLoop` clears it directly (needed because re-arming the *same* already-armed
+loop, which is what clicking its own region on the scrub bar does, doesn't
+change `activeLoopId` at all, so an effect keyed on that alone never fires);
+`toggleLoop`'s disarm path clears it via the `activeLoopId → null` change that
+same effect does catch; and the effect also clears it when the armed loop's own
+`a`/`b` move (nudge or Set), since a stale scale factor against new bounds
+wouldn't mean anything.
+
 **The scrub bar's section markers must stay `pointer-events: none`.** They were
 draggable once; practice loops are only a percent or two of the bar, so the drag
 targets covered the region and swallowed the clicks meant to select it. Points
@@ -132,6 +164,10 @@ which is what keeps public traffic off the API quota. Errors are never cached.
 Because of that, an explicit Refresh appends `&t=<timestamp>` to force a miss.
 Without it the button whose entire purpose is "pick up newly added songs" could
 return the same list for five minutes.
+
+Non-armed sections alternate between two shades by array index (`i % 2`),
+striped like table rows, so adjacent back-to-back sections with no gap between
+them stay visually distinguishable instead of reading as one solid block.
 
 ### Removed videos
 
