@@ -128,10 +128,16 @@
     modUp2.start(stagger)
     fade2.start(stagger)
 
+    // The ramp sweeps the delay from 0 to `seconds` over BUFFER_TIME, and a
+    // linearly ramping delay shifts pitch by 1 + (sweep / BUFFER_TIME). Since
+    // DELAY_TIME and BUFFER_TIME are both 0.1, passing the full sweep makes
+    // that come out at exactly 2^(semitones/12). Halving it here — as the
+    // widely copied version of this algorithm does — delivered half the
+    // interval, so every semitone sounded like a quarter tone.
     const setDepth = (seconds) => {
       const now = context.currentTime
-      depth1.gain.setTargetAtTime(seconds / 2, now, 0.01)
-      depth2.gain.setTargetAtTime(seconds / 2, now, 0.01)
+      depth1.gain.setTargetAtTime(seconds, now, 0.01)
+      depth2.gain.setTargetAtTime(seconds, now, 0.01)
     }
 
     return {

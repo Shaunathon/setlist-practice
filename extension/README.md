@@ -60,3 +60,15 @@ playback.
 The script looks for a `<video>` element inside the embed. If YouTube
 restructures its embed player this may need adjusting. Nothing else here depends
 on YouTube's internals.
+
+## A note on the depth calculation
+
+The delay ramp sweeps from 0 to `depth` over `BUFFER_TIME`, and a linearly
+ramping delay shifts pitch by `1 + depth / BUFFER_TIME`. Since `DELAY_TIME` and
+`BUFFER_TIME` are both 0.1, the depth must be passed through in full for the
+result to land on `2^(semitones/12)`.
+
+The widely copied version of this algorithm halves it (`0.5 * delayTime`). That
+delivers half the requested interval — a semitone arrives as 51 cents, near
+enough a quarter tone to be immediately obvious to anyone with ears. If pitches
+ever start sounding flat by half an interval, this is the line to check.

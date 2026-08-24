@@ -45,6 +45,14 @@ const segBtn =
 /** How far one nudge moves a loop point, in seconds. */
 const NUDGE_SECONDS = 0.1
 
+/**
+ * Transposition limit, in semitones either way. A tritone covers any key match
+ * you'd actually need — beyond that you're closer to the target by going the
+ * other direction — and delay-based shifting degrades badly at wide intervals.
+ */
+const MAX_PITCH = 6
+const clampPitch = (n) => Math.min(MAX_PITCH, Math.max(-MAX_PITCH, Math.round(n)))
+
 export default function SongCard({
   showId,
   song,
@@ -77,11 +85,15 @@ export default function SongCard({
   const yt = useYouTubePlayer({ videoId: song.videoId, loopRef })
   const audio = useAudioEngine({ loopRef })
 
+  // Clamped on read so a value stored under an older, wider range can't drive
+  // the shifter past what it handles well.
+  const pitch = clampPitch(settings.pitch)
+
   // The companion extension, if it's installed, can transpose the YouTube
   // player from inside its own frame.
   const extensionTranspose = useTransposeBridge({
     hostRef: yt.hostRef,
-    semitones: settings.pitch,
+    semitones: pitch,
     enabled: mode === 'youtube',
   })
 
@@ -123,8 +135,8 @@ export default function SongCard({
   }, [audioReady, setTempo, settings.tempo])
 
   useEffect(() => {
-    if (audioReady) setPitch(settings.pitch)
-  }, [audioReady, setPitch, settings.pitch])
+    if (audioReady) setPitch(pitch)
+  }, [audioReady, setPitch, pitch])
 
   // Only one engine within this card should ever be making sound.
   useEffect(() => {
@@ -397,16 +409,16 @@ export default function SongCard({
           {song.title}
         </h3>
 
-        {mode === 'youtube' && (settings.rate !== 1 || (extensionTranspose && settings.pitch !== 0)) && (
+        {mode === 'youtube' && (settings.rate !== 1 || (extensionTranspose && pitch !== 0)) && (
           <span className="rounded bg-gold/20 px-1.5 py-0.5 font-mono text-xs text-gold">
             {settings.rate !== 1 && percentLabel(settings.rate)}
-            {settings.rate !== 1 && extensionTranspose && settings.pitch !== 0 && ' · '}
-            {extensionTranspose && settings.pitch !== 0 && `${semitoneLabel(settings.pitch)} st`}
+            {settings.rate !== 1 && extensionTranspose && pitch !== 0 && ' · '}
+            {extensionTranspose && pitch !== 0 && `${semitoneLabel(pitch)} st`}
           </span>
         )}
         {mode === 'audio' && (
           <span className="rounded bg-rust/25 px-1.5 py-0.5 font-mono text-xs text-cream">
-            {percentLabel(settings.tempo)} · {semitoneLabel(settings.pitch)}
+            {percentLabel(settings.tempo)} · {semitoneLabel(pitch)}
           </span>
         )}
         {activeLoop && activeLoop.a != null && activeLoop.b != null && (
@@ -689,7 +701,7 @@ export default function SongCard({
                 <label className="text-xs uppercase tracking-wide text-muted">Transpose</label>
                 <span className="font-mono text-sm text-gold">
                   {mode === 'audio' || extensionTranspose
-                    ? `${semitoneLabel(settings.pitch)} st`
+                    ? `${semitoneLabel(pitch)} st`
                     : '—'}
                 </span>
               </div>
@@ -698,23 +710,42 @@ export default function SongCard({
                 <>
                   <input
                     type="range"
-                    min="-12"
-                    max="12"
+                    min={-MAX_PITCH}
+                    max={MAX_PITCH}
                     step="1"
-                    value={settings.pitch}
-                    onChange={(e) => update({ pitch: Number(e.target.value) })}
+                    value={pitch}
+                    onChange={(e) => update({ pitch: clampPitch(Number(e.target.value)) })}
                     className="w-full"
                   />
                   <div className="mt-1 flex gap-1">
-                    {[-5, -2, 0, 2, 5].map((p) => (
-                      <button
-                        key={p}
-                        onClick={() => update({ pitch: p })}
-                        className="flex-1 rounded bg-panel-2 py-0.5 font-mono text-xs ring-1 ring-edge hover:bg-edge"
-                      >
-                        {semitoneLabel(p)}
-                      </button>
-                    ))}
+                    {/* Relative steps either side of an absolute reset, so you
+                        can chase a key by ear without doing the sums. */}
+                    {[
+                      { label: '−2', delta: -2 },
+                      { label: '−1', delta: -1 },
+                      { label: '0', reset: true },
+                      { label: '+1', delta: 1 },
+                      { label: '+2', delta: 2 },
+                    ].map(({ label, delta, reset }) => {
+                      const next = reset ? 0 : clampPitch(pitch + delta)
+                      return (
+                        <button
+                          key={label}
+                          onClick={() => update({ pitch: next })}
+                          disabled={next === pitch}
+                          title={
+                            reset
+                              ? 'Back to the original key'
+                              : `${delta > 0 ? 'Up' : 'Down'} ${Math.abs(delta)} semitone${
+                                  Math.abs(delta) === 1 ? '' : 's'
+                                }`
+                          }
+                          className="flex-1 rounded bg-panel-2 py-0.5 font-mono text-xs ring-1 ring-edge hover:bg-edge disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                          {label}
+                        </button>
+                      )
+                    })}
                   </div>
                 </>
               ) : (
