@@ -177,6 +177,13 @@
   }
 
   function applyPitch(semitones) {
+    // Nothing to do while we're at the original key and no graph exists yet.
+    // Building one on page load would leave a muted shifter running on every
+    // song of a setlist — six looping sources and two delay lines apiece — and
+    // would tap the audio of videos that may never be transposed at all. The
+    // parent still counts this as a success, so the slider becomes available.
+    if (semitones === 0 && !graph) return true
+
     const video = document.querySelector('video')
     if (!video) return false
 

@@ -55,6 +55,19 @@ file to the song card instead. That path decodes the whole file up front and
 uses SoundTouch, which sounds considerably better because it isn't racing
 playback.
 
+## When the audio actually gets touched
+
+Nothing is tapped until you first ask for a non-zero interval. A song you never
+transpose keeps its audio entirely outside Web Audio, which matters on a long
+setlist — otherwise every card would carry a muted shifter running six looping
+sources and two delay lines.
+
+Once built, the graph stays. Returning to 0 mutes the shifter's output and
+passes the dry signal through at unity gain, which is sonically identical to
+never having tapped it, but the tap itself can't be undone —
+`createMediaElementSource` is one-way for the life of the element. A page reload
+starts clean.
+
 ## If it stops working
 
 The script looks for a `<video>` element inside the embed. If YouTube
