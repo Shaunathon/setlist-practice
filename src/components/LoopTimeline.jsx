@@ -100,9 +100,14 @@ export default function LoopTimeline({
                 />
               )}
 
+              {/* Flush with the boundary rather than straddling it: the start
+                  label's left edge sits exactly at `a` and grows rightward into
+                  the section; the end label's right edge sits exactly at `b`
+                  and grows leftward. Centering them on the point used to leave
+                  half the label hanging outside the region it was marking. */}
               {loop.a != null && (
                 <span
-                  className={`absolute top-0 -ml-1.5 rounded-br rounded-tl px-1 text-[10px] font-bold leading-4 ${
+                  className={`absolute top-0 rounded-r px-1 text-[10px] font-bold leading-4 ${
                     isActive ? 'bg-gold text-ground' : 'bg-edge text-cream'
                   }`}
                   style={{ left: pct(loop.a) }}
@@ -113,10 +118,10 @@ export default function LoopTimeline({
 
               {loop.b != null && (
                 <span
-                  className={`absolute bottom-0 -ml-1.5 rounded-bl rounded-tr px-1 text-[10px] font-bold leading-4 ${
+                  className={`absolute bottom-0 rounded-l px-1 text-[10px] font-bold leading-4 ${
                     isActive ? 'bg-rust text-cream' : 'bg-edge text-cream'
                   }`}
-                  style={{ left: pct(loop.b) }}
+                  style={{ left: pct(loop.b), transform: 'translateX(-100%)' }}
                 >
                   {labelB}
                 </span>
