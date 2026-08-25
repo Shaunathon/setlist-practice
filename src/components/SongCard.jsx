@@ -184,18 +184,10 @@ export default function SongCard({
     else pauseAudio()
   }, [mode, pauseYouTube, pauseAudio])
 
-  // Fires only when a DIFFERENT card claims playback — never from pausing this
-  // one yourself — so it's the right place to release whatever loop was armed
-  // here. Otherwise coming back and pressing play snaps straight back into a
-  // loop you didn't just choose to re-enter. The loop's own A/B points are
-  // untouched; only the "currently repeating" flag clears, and the existing
-  // reset effect (already watching activeLoopId) picks up the practice-length
-  // cleanup from there.
   const pauseEverything = useCallback(() => {
     pauseYouTube()
     pauseAudio()
-    if (settings.activeLoopId) update({ activeLoopId: null })
-  }, [pauseYouTube, pauseAudio, settings.activeLoopId, update])
+  }, [pauseYouTube, pauseAudio])
 
   // …and only one card on the page. This watches the players' own state rather
   // than our Play buttons, so starting a video with YouTube's built-in control

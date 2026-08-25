@@ -146,24 +146,6 @@ carries. Settings saved before this existed used `loopA`/`loopB`/`loopOn`
 directly; `migrateSongSettings` in `storage.js` folds those into the first row,
 so don't reintroduce reads of the old keys.
 
-### Playback focus and the armed loop
-
-`ShowPage` tracks which card is currently making sound (`claimPlayback`) so
-starting one pauses whatever else was going, across both engines and across
-cards — see the two-playback-engines note above. `pauseEverything` is the
-callback each card registers for this, and it fires *only* when a **different**
-card takes over playback — never from pausing the same card yourself.
-
-That makes it the right place to also disarm whatever loop was armed on the
-card that just lost focus: `if (settings.activeLoopId) update({ activeLoopId:
-null })`. Otherwise scrolling back to a card and pressing play snaps straight
-back into a loop you didn't just choose to re-enter. The loop itself (its A/B
-points) is untouched — only the "currently repeating" flag clears, and the
-existing practice-length reset effect (already watching `activeLoopId`) picks
-up the cleanup from there. Don't add this to the mode-switch pause effect
-(YouTube ↔ audio file within one card) — that's a different, same-card path
-where the armed loop should survive.
-
 ### Backup import must merge, never replace
 
 `importAll` matches shows by id and leaves everything else alone. It is the only
