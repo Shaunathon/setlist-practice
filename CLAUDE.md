@@ -146,6 +146,44 @@ carries. Settings saved before this existed used `loopA`/`loopB`/`loopOn`
 directly; `migrateSongSettings` in `storage.js` folds those into the first row,
 so don't reintroduce reads of the old keys.
 
+### Playback focus
+
+`ShowPage` owns `focusedVideoId`; exactly one card holds playback focus, shown
+as a gold ring. Built and verified in four steps, and the rules interlock:
+
+1. **Playing claims focus.** Watched off the engines' own `playing` state, not
+   the Play button — clicks inside the cross-origin YouTube iframe never reach
+   us as pointer events, so the state watch is the only way that case is caught.
+2. **Clicking anywhere on a card claims focus**, and **losing focus stops that
+   card's playback**. Nothing in a card stops propagation, so one `onPointerDown`
+   on the section covers the scrub bar, every button, and the notes field.
+3. **Losing focus also disarms that card's loop.** Hung on the focus-loss
+   transition, *not* on `pauseEverything` — an earlier attempt keyed off the
+   playback-claim path instead and had to be reverted.
+4. **Arming a section starts playback from its start point.** Lives in
+   `armLoop`, which both the row's Loop button and scrub-bar region clicks go
+   through, so the two can't drift apart.
+
+Focus loss is detected as a **transition** (`hadFocusRef.current && !hasFocus`),
+never as plain `!hasFocus` — otherwise every card that has never had focus would
+be told to pause on every unrelated render.
+
+**A card's Loop button only disarms when that card holds focus.** An unfocused
+card isn't audibly repeating anything, so its armed flag is stale state and a
+click there always means "play this section." Without that guard the first click
+on a saved-armed loop silently disarms instead of playing.
+
+The gold focus ring must stay a **single** colour declaration. A stray
+`focus-within:ring-gold/60` once co-existed with it, so the same focused state
+rendered at two brightnesses depending on which descendant held DOM focus — the
+same conflicting-utility trap as the `bg-*` note above, in a different property.
+
+`activeLoopId` is **never restored from storage** — `getSongSettings` forces it
+to `null` on read. Arming belongs to the focused session, and on a fresh load
+nothing is focused. Sections themselves persist; only their armed state doesn't.
+Stripped on read rather than write so a value left by an older build can't
+resurrect itself.
+
 ### Backup import must merge, never replace
 
 `importAll` matches shows by id and leaves everything else alone. It is the only

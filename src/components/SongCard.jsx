@@ -69,6 +69,8 @@ export default function SongCard({
   onToggleDone,
   onRemove,
   claimPlayback,
+  hasFocus,
+  onRequestFocus,
 }) {
   const [settings, setSettings] = useState(() => getSongSettings(showId, song.videoId))
   const [mode, setMode] = useState('youtube') // 'youtube' | 'audio'
@@ -115,6 +117,11 @@ export default function SongCard({
   const [practiceLength, setPracticeLength] = useState(null) // seconds, or null = full loop
   const practiceLengthRef = useRef(null)
   practiceLengthRef.current = practiceLength
+
+  // Mirrored so the focus-loss effect can check whether anything is armed
+  // without re-running every time the armed loop changes.
+  const activeLoopIdRef = useRef(settings.activeLoopId)
+  activeLoopIdRef.current = settings.activeLoopId
 
   /**
    * Both engines only ever repeat one section, so collapse whichever loop is
@@ -195,6 +202,32 @@ export default function SongCard({
   useEffect(() => {
     if (yt.playing || audio.playing) claimPlayback?.(song.videoId, pauseEverything)
   }, [yt.playing, audio.playing, claimPlayback, song.videoId, pauseEverything])
+
+  // Step 1: playing pulls focus to this card. Watches the engines' own state,
+  // not the Play button, so YouTube's built-in control counts too — clicks
+  // inside the cross-origin iframe never reach us as pointer events, so this
+  // state watch is the only way that case is caught.
+  useEffect(() => {
+    if (yt.playing || audio.playing) onRequestFocus?.(song.videoId)
+  }, [yt.playing, audio.playing, onRequestFocus, song.videoId])
+
+  // Step 2: losing focus stops this card's playback. Step 3: it also disarms
+  // whatever loop was armed here, so coming back and pressing play doesn't drop
+  // you straight into a loop you didn't just choose.
+  //
+  // Tracked as a transition (had it, now don't) rather than plain `!hasFocus`,
+  // so a card that never had focus isn't told to pause on every unrelated
+  // render. The loop's own A/B points are untouched — only the "currently
+  // repeating" flag clears — and `update` skips the write when nothing is armed.
+  const hadFocusRef = useRef(hasFocus)
+  useEffect(() => {
+    const lostFocus = hadFocusRef.current && !hasFocus
+    hadFocusRef.current = hasFocus
+    if (!lostFocus) return
+    pauseYouTube()
+    pauseAudio()
+    if (activeLoopIdRef.current) update({ activeLoopId: null })
+  }, [hasFocus, pauseYouTube, pauseAudio, update])
 
   const { currentTime: audioTime } = audio
   const { currentTime: youtubeTime } = yt
@@ -287,17 +320,36 @@ export default function SongCard({
       setPracticeLength(null)
       update({ activeLoopId: loopId })
       if (loop.a != null) engineRef.current?.seek(loop.a)
+      // Selecting a section is a request to hear it, whichever way you got
+      // here — the row's Loop button or clicking the section on the scrub bar.
+      // Both routes come through here so they can't drift apart.
+      engineRef.current?.play()
     },
     [update, settings.loops]
   )
 
-  /** Only one section repeats at a time — arming one disarms the rest. */
+  /**
+   * Only one section repeats at a time — arming one disarms the rest.
+   *
+   * Arming starts playback from the section's start — that lives in `armLoop`,
+   * shared with scrub-bar clicks so both behave the same.
+   *
+   * Turning a loop off only applies on a card that actually holds focus. An
+   * unfocused card isn't repeating anything you can hear — its armed flag is
+   * just stale state, most often restored from storage on page load — so a
+   * click there always means "start this section", never "switch it off".
+   * Without that guard, the very first click on a saved-armed loop would
+   * silently disarm it instead of playing it.
+   */
   const toggleLoop = useCallback(
     (loopId) => {
-      if (settings.activeLoopId === loopId) update({ activeLoopId: null })
-      else armLoop(loopId)
+      if (hasFocus && settings.activeLoopId === loopId) {
+        update({ activeLoopId: null })
+        return
+      }
+      armLoop(loopId)
     },
-    [settings.activeLoopId, update, armLoop]
+    [hasFocus, settings.activeLoopId, update, armLoop]
   )
 
   /**
@@ -489,11 +541,21 @@ export default function SongCard({
       ref={cardRef}
       tabIndex={0}
       onKeyDown={onKeyDown}
+      // Any interaction with this card claims focus — a click on the scrub bar,
+      // a Set button, the notes field, anywhere. Nothing in the card stops
+      // propagation, so this one handler covers all of it. Re-claiming focus
+      // this card already holds is a no-op React bails out of.
+      onPointerDown={() => onRequestFocus?.(song.videoId)}
       onDragOver={(e) => e.preventDefault()}
       onDrop={onDrop}
+      // The gold ring means exactly one thing — this card holds playback focus —
+      // at one brightness. There used to be a `focus-within:ring-gold/60` here
+      // too, from before an explicit focus concept existed; with both present,
+      // whichever descendant happened to hold DOM focus decided the ring colour,
+      // so the same "focused" state rendered at two different opacities.
       className={`rounded-lg bg-panel ring-1 transition-shadow ${
-        done ? 'ring-edge/50 opacity-70' : 'ring-edge'
-      } focus-within:ring-gold/60`}
+        hasFocus ? 'ring-2 ring-gold' : done ? 'ring-edge/50 opacity-70' : 'ring-edge'
+      }`}
     >
       {/* ------------------------------------------------------- header -- */}
       <header className="flex items-center gap-3 px-4 py-3">

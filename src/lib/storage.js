@@ -108,6 +108,12 @@ export function getSongSettings(showId, videoId) {
   return {
     ...DEFAULT_SONG_SETTINGS,
     ...migrateSongSettings(read(songKey(showId, videoId), {})),
+    // Which section is armed is a property of the current session, not of the
+    // song: it belongs to whichever card holds playback focus, and on a fresh
+    // load nothing does. The sections themselves are preserved — only their
+    // armed state is dropped. Stripped on read rather than on write so a value
+    // left in storage by an older build can't resurrect itself either.
+    activeLoopId: null,
   }
 }
 

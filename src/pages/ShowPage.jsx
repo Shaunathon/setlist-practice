@@ -32,6 +32,13 @@ export default function ShowPage() {
     playingRef.current = { videoId, pause }
   }, [])
 
+  // Step 1 of a deliberately incremental build: which card currently holds
+  // "playback focus." For now this only tracks the value and lets a card show
+  // it — playing a video claims it here. Stopping other cards and disarming
+  // loops on focus loss are separate, later steps once this one is confirmed.
+  const [focusedVideoId, setFocusedVideoId] = useState(null)
+  const requestFocus = useCallback((videoId) => setFocusedVideoId(videoId), [])
+
   useEffect(() => {
     setShow(getShow(id))
   }, [id])
@@ -267,6 +274,8 @@ export default function ShowPage() {
               onToggleDone={() => toggleDone(song.videoId)}
               onRemove={() => removeSong(song.videoId)}
               claimPlayback={claimPlayback}
+              hasFocus={focusedVideoId === song.videoId}
+              onRequestFocus={requestFocus}
             />
           ))}
       </div>
