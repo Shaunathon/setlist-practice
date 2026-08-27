@@ -7,9 +7,11 @@ const KEYBOARD_URL =
   'https://shaunathon.github.io/makam-keyboard/?dock=1'
 const KEYBOARD_ORIGIN = new URL(KEYBOARD_URL).origin
 
-// Must match DOCK_KEYS_HEIGHT in the keyboard app: the strip is only the keys
-// until the keyboard asks for more room for its controls.
-const RESTING_HEIGHT = 60
+// What the keyboard app currently asks for: a row of controls above the 60px
+// key strip. It posts its own height on load, so this only has to be right for
+// the moment before that arrives.
+const DEFAULT_HEIGHT = 112
+const MIN_HEIGHT = 60
 const MAX_HEIGHT = 240
 
 /**
@@ -17,11 +19,10 @@ const MAX_HEIGHT = 240
  * everything else so it is never covered.
  *
  * It lives on shaunathon.github.io, so nothing here can measure it — the
- * keyboard posts the height it wants (keys only at rest, taller while its
- * controls are showing) and this frame follows.
+ * keyboard posts the height it wants and this frame follows.
  */
 export default function MakamKeyboardDock() {
-  const [height, setHeight] = useState(RESTING_HEIGHT)
+  const [height, setHeight] = useState(DEFAULT_HEIGHT)
 
   useEffect(() => {
     const onMessage = (event) => {
@@ -31,7 +32,7 @@ export default function MakamKeyboardDock() {
 
       const asked = Number(data.height)
       if (!Number.isFinite(asked)) return
-      setHeight(Math.min(MAX_HEIGHT, Math.max(RESTING_HEIGHT, Math.round(asked))))
+      setHeight(Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, Math.round(asked))))
     }
 
     window.addEventListener('message', onMessage)
