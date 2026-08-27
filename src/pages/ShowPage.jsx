@@ -12,6 +12,7 @@ import {
 import { showDate } from '../lib/format'
 import SongCard from '../components/SongCard'
 import MetronomePanel from '../components/MetronomePanel'
+import MakamKeyboardDock from '../components/MakamKeyboardDock'
 
 export default function ShowPage() {
   const { id } = useParams()
@@ -281,6 +282,7 @@ export default function ShowPage() {
       </div>
 
       <MetronomePanel />
+      <MakamKeyboardDock />
     </div>
   )
 }
