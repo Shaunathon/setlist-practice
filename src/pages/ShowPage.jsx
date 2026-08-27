@@ -163,7 +163,7 @@ export default function ShowPage() {
   }, [show?.id])
 
   return (
-    <div className="mx-auto max-w-6xl px-4 py-8 pb-32">
+    <div className="mx-auto max-w-6xl px-4 py-8 pb-40">
       <Link
         to="/"
         className="mb-4 inline-flex items-center gap-1.5 text-sm text-muted hover:text-gold"
